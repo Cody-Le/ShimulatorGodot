@@ -1,0 +1,3 @@
+[submodule "godot-fsw-tcp"]
+	path = godot-fsw-tcp
+	url = https://github.com/Cody-Le/GodotFSWShim.git
