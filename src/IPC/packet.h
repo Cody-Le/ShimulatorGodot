@@ -2,7 +2,7 @@
 #define PACKET_H
 
 
-#include "../HDWI/hdwi.h"
+#include "../HDWI/hdwi_type.h"
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <cstdint>
@@ -73,8 +73,8 @@ namespace godot {
     };
 }
 
-VARIANT_ENUM_CAST(godot::CmdType)
-VARIANT_ENUM_CAST(godot::HDWIType)
+VARIANT_ENUM_CAST(godot::CmdType);
+VARIANT_ENUM_CAST(godot::HDWIType);
 
 
 #endif
