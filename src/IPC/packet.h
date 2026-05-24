@@ -10,19 +10,19 @@
 
 namespace godot {
 
-    typedef uint8_t cmd_id_t;
-    typedef uint8_t action_id_t;
-
+    
     #define VERSION 4
 
-    #define CMD_SYNCH ((cmd_id_t)0x01)
-    #define CMD_ACTION ((cmd_id_t)0x02)
+     enum class CmdType : uint8_t {
+                CMD_SYNCH = 1,
+                CMD_ACTION = 2
+            };
 
 
     struct PacketHeader {
         uint16_t version;
-        cmd_id_t cmd_id;
-        hdwi_type_t type;
+        CmdType cmd_id;
+        HDWIType type;
         uint8_t device_index;
         char reversed[3];
         uint64_t time_ns;
@@ -37,19 +37,44 @@ namespace godot {
         GDCLASS(PacketCPP, RefCounted)
         private:
             bool valid = false;
+            PacketHeader header;
+            PackedByteArray data;
         
         protected:
             static void _bind_methods();
         
         public:
             static uint32_t get_header_length();
-            PacketHeader header;
-            PackedByteArray data;
+
+           
+
+            
             PacketCPP();
+
+            void generate(uint8_t device_index, 
+                CmdType cmd_type, 
+                HDWIType hdwi_type,
+                uint64_t time_ns,
+                PackedByteArray bytes);
+
+            void generate_from_bytes(PackedByteArray header_bytes);
             ~PacketCPP();
             bool get_validity();
+
+            int64_t get_cmd_id();
+            int64_t get_type();
+            uint8_t get_device_index();
+            uint64_t get_time_ns();
+            static uint32_t get_header_len();
+            uint32_t get_data_len();
+            String _to_string() const;
+            void set_data(PackedByteArray data);
+
     };
 }
+
+VARIANT_ENUM_CAST(godot::CmdType)
+VARIANT_ENUM_CAST(godot::HDWIType)
 
 
 #endif

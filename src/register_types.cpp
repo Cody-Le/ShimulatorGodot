@@ -1,5 +1,6 @@
 #include "register_types.h"
 #include "IPC/packet.h"
+#include "HDWI/hdwi.h"
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/defs.hpp>
@@ -14,6 +15,8 @@ void initialize_module(ModuleInitializationLevel p_level) {
 	}
 
 	GDREGISTER_CLASS(PacketCPP);
+    GDREGISTER_CLASS(HDWIResource);
+
 }
 
 void uninitialize_module(ModuleInitializationLevel p_level) {
