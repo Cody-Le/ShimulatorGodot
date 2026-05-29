@@ -42,12 +42,6 @@ namespace godot {
             void set_num_lines(uint8_t p_num_lines);
             uint8_t get_num_lines() const;
 
-            // base: for a base N, the device name will be listed as gpiochipN
-            // @export variables, setters and getters: base
-            uint8_t base = 0; // Default to base 0, can be changed by user
-            void set_base(uint8_t p_base);
-            uint8_t get_base() const;
-
             // Get device representation as a packed byte array
             PackedByteArray get_device_representation();
             
