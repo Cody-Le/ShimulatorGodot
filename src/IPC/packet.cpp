@@ -25,12 +25,14 @@ void PacketCPP::_bind_methods() {
     ClassDB::bind_method(D_METHOD("_to_string"), &PacketCPP::_to_string);
     ClassDB::bind_method(D_METHOD("set_data", "data"), &PacketCPP::set_data);
     ClassDB::bind_static_method("PacketCPP", D_METHOD("get_header_len"), &PacketCPP::get_header_len);
+    ClassDB::bind_method(D_METHOD("convert_to_bytes"), &PacketCPP::convert_to_bytes);
 
     // In _bind_methods()
     ClassDB::bind_integer_constant(get_class_static(), "CmdType", "CMD_SYNCH",  (int64_t)CmdType::CMD_SYNCH);
     ClassDB::bind_integer_constant(get_class_static(), "CmdType", "CMD_ACTION", (int64_t)CmdType::CMD_ACTION);
 
     ClassDB::bind_integer_constant(get_class_static(), "HDWIType", "GPIO", (int64_t)HDWIType::GPIO);
+    
 
 }
 
@@ -50,7 +52,7 @@ void PacketCPP::generate(uint8_t device_index,
 void PacketCPP::generate_from_bytes(PackedByteArray header_bytes) {
     this->header = {0};
     this->header = *((PacketHeader*)header_bytes.ptrw());
-    if(this->header.version != VERSION || unlikely(this->header.data_len != sizeof(PacketHeader))) {
+    if(this->header.version != VERSION || unlikely(header_bytes.size() != sizeof(PacketHeader))) {
         this->valid = false;
     } else {
         this->valid = true;
@@ -93,7 +95,13 @@ uint32_t PacketCPP::get_data_len() {
 String PacketCPP::_to_string() const {
     String result = "PacketCPP { ";
     result += "version: " + String::num_int64(header.version) + ", ";
-    result += "cmd_id: " + String::num_int64((uint8_t)header.cmd_id) + ", ";
+    if(header.cmd_id == CmdType::CMD_SYNCH) {
+        result += "cmd_id: CMD_SYNCH, ";
+    } else if(header.cmd_id == CmdType::CMD_ACTION) {
+        result += "cmd_id: CMD_ACTION, ";
+    } else {
+        result += "cmd_id: UNKNOWN, ";
+    }
     result += "type: " + String::num_int64((uint8_t)header.type) + ", ";
     result += "device_index: " + String::num_int64(header.device_index) + ", ";
     result += "time_ns: " + String::num_int64(header.time_ns) + ", ";
@@ -109,4 +117,14 @@ String PacketCPP::_to_string() const {
 void PacketCPP::set_data(PackedByteArray data) {
     this->data = data;
     this->header.data_len = data.size();
+}
+
+PackedByteArray PacketCPP::convert_to_bytes() {
+    PackedByteArray bytes;
+    bytes.resize(sizeof(PacketHeader) + this->data.size());
+    // Copy header
+    memcpy(bytes.ptrw(), &this->header, sizeof(PacketHeader));
+    // Copy data
+    memcpy(bytes.ptrw() + sizeof(PacketHeader), this->data.ptr(), this->data.size());
+    return bytes;
 }

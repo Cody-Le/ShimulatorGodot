@@ -29,10 +29,7 @@ namespace godot {
             HDWIType get_type() const { return type; }
 
             // Get device representation as a packed byte array
-            PackedByteArray get_device_representation() const {
-                // Implementation to be added
-                return PackedByteArray();
-            }
+            PackedByteArray get_device_representation() const;
 
             // Signals
             // Component - (HDWI) -> CommSeq

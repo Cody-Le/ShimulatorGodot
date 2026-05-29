@@ -69,6 +69,7 @@ namespace godot {
             uint32_t get_data_len();
             String _to_string() const;
             void set_data(PackedByteArray data);
+            PackedByteArray convert_to_bytes();
 
     };
 }
