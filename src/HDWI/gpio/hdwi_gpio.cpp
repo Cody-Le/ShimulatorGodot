@@ -84,12 +84,16 @@ void HDWIGPIOResource::handle_gpio_get(sim_gpio_request_t request) {
         PackedByteArray response_data;
         response_data.resize(sizeof(sim_gpio_response_t));
         memcpy(response_data.ptrw(), &response, sizeof(sim_gpio_response_t));
-        PacketCPP packet;
-        packet.generate(0, CmdType::CMD_ACTION, type, 0, response_data);
-        emit_signal("on_send", packet.convert_to_bytes());
+        UtilityFunctions::print("Prepared response data with value: " + String::num_int64(response.value));
+        PacketCPP *packet = memnew(PacketCPP);
+        packet->generate(0, CmdType::CMD_ACTION, type, 0, response_data);
+        UtilityFunctions::print("Emitting on_send signal with response data size: " + String::num_int64(response_data.size()));
+        emit_signal("on_send", packet->convert_to_bytes());
+        memdelete(packet);
     } else {
         // Handle error: offset out of range
     }
+
 }
 
 void HDWIGPIOResource::handle_gpio_set(sim_gpio_request_t request) {

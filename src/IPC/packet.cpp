@@ -44,10 +44,13 @@ void PacketCPP::generate(uint8_t device_index,
                 uint64_t time_ns,
                 PackedByteArray bytes) {
     this->header = {0};
+    this->header.version = VERSION;
     this->header.cmd_id = cmd_type;
     this->header.device_index = device_index;
     this->header.type = hdwi_type;
     this->header.time_ns = time_ns;
+    this->data = bytes;
+    this->header.data_len = bytes.size();
 }  
 
 void PacketCPP::generate_from_bytes(PackedByteArray header_bytes) {
