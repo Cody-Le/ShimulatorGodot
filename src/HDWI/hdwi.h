@@ -26,10 +26,12 @@ namespace godot {
             String get_device_name() const;
 
             // Getter for device type
-            HDWIType get_type() const { return type; }
+            HDWIType get_type() {
+                return type;
+            };
 
             // Get device representation as a packed byte array
-            PackedByteArray get_device_representation() const;
+            virtual PackedByteArray get_device_representation() const;
 
             // Signals
             // Component - (HDWI) -> CommSeq
@@ -37,7 +39,7 @@ namespace godot {
 
             // Methods
             // Comm - (Device Registry -> Component's HDWI Resource) -> HDWI
-            void dispatch_action(PackedByteArray request_data);
+            virtual void dispatch_action(PackedByteArray request_data) = 0;
             
             HDWIResource() = default;
 

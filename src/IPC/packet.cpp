@@ -24,6 +24,7 @@ void PacketCPP::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_data_len"), &PacketCPP::get_data_len);
     ClassDB::bind_method(D_METHOD("_to_string"), &PacketCPP::_to_string);
     ClassDB::bind_method(D_METHOD("set_data", "data"), &PacketCPP::set_data);
+    ClassDB::bind_method(D_METHOD("get_data"), &PacketCPP::get_data);
     ClassDB::bind_static_method("PacketCPP", D_METHOD("get_header_len"), &PacketCPP::get_header_len);
     ClassDB::bind_method(D_METHOD("convert_to_bytes"), &PacketCPP::convert_to_bytes);
 
@@ -106,11 +107,8 @@ String PacketCPP::_to_string() const {
     result += "device_index: " + String::num_int64(header.device_index) + ", ";
     result += "time_ns: " + String::num_int64(header.time_ns) + ", ";
     result += "data_len: " + String::num_int64(header.data_len) + ", ";
-    result += "data: [";
-    for (int i = 0; i < header.data_len; i++) {
-        result += String::num_int64(data[i]) + (i < header.data_len - 1 ? ", " : "");
-    }
-    result += "] }";
+    result += "data: " + data.hex_encode();
+    result += " }";
     return result;
 }
 
@@ -118,6 +116,11 @@ void PacketCPP::set_data(PackedByteArray data) {
     this->data = data;
     this->header.data_len = data.size();
 }
+
+PackedByteArray PacketCPP::get_data() const {
+    return this->data;
+}
+
 
 PackedByteArray PacketCPP::convert_to_bytes() {
     PackedByteArray bytes;

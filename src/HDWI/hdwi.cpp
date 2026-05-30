@@ -14,11 +14,6 @@ void HDWIResource::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::STRING, "device_name"), "set_device_name", "get_device_name");
 }
 
-void HDWIResource::dispatch_action(PackedByteArray request_data) {
-    // Implementation to be added
-}
-
-
 // Setters and getters for device_name
 void HDWIResource::set_device_name(const String &p_device_name) {
     device_name = p_device_name;    
@@ -36,14 +31,13 @@ PackedByteArray HDWIResource::get_device_representation() const {
     // For simplicity, we will just convert these to bytes and append them to the array
     // Convert device name to bytes and append
     String device_name = get_device_name();
-    char device_name_bytes[32];
+    char device_name_bytes[32] = {0};
     strcpy(device_name_bytes, device_name.utf8().get_data());
     for (int i = 0; i < 32; i++) {
         device_representation.push_back(static_cast<char>(device_name_bytes[i]));
     }
 
-    // Append device type
-    device_representation.push_back(static_cast<uint8_t>(get_type()));
+    device_representation.resize(32);
     return device_representation;
 }
 
