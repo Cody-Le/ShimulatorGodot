@@ -23,6 +23,9 @@ String HDWIResource::get_device_name() const {
     return device_name;
 }
 
+
+
+
 PackedByteArray HDWIResource::get_device_representation() const {
     // New packed byte array to hold the device representation
     PackedByteArray device_representation;

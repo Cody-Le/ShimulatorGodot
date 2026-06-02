@@ -2,6 +2,8 @@
 #define HDWI_GPIO_H
 
 #include "../hdwi.h"
+#include <godot_cpp/variant/typed_array.hpp>
+#include <godot_cpp/variant/packed_byte_array.hpp>
 
 namespace godot {
 
@@ -43,13 +45,31 @@ namespace godot {
             HDWIType type = HDWIType::GPIO;
             // PackedInt32Array to hold the dir of each lines
             PackedInt32Array gpio_dirs; // 0 for input, 1 for output
+            // PackedInt32Array to hold the value of each lines
 
         protected:
             static void _bind_methods();
         
         public:
+
+            static TypedArray<HDWIGPIOResource> gpio_resources; // Static array to hold all GPIO resources for group representation
+
+
+            HDWIGPIOResource() = default;
+
+            ~HDWIGPIOResource() = default;
+
+            void init(){
+                HDWIGPIOResource::gpio_resources.append(this); // Add this instance to the static array of GPIO resources
+            }
+
+            void clear() {
+                // Remove this instance from the static array of GPIO resources upon destruction
+                HDWIGPIOResource::gpio_resources.erase(this);
+            }
             // Signals
             // Component - (HDWI) -> CommSeq
+
             void on_send();
             //GPIO line changes signals
             void on_gpio_line_change(uint8_t line_offset, uint8_t new_value);
@@ -64,10 +84,12 @@ namespace godot {
             void set_gpio_values(PackedInt32Array p_gpio_values);
             PackedInt32Array get_gpio_values() const;
 
+            // Get all the devices of this type for group representation
+            static TypedArray<HDWIGPIOResource> get_all_gpio_resources();
+
             // Get device representation as a packed byte array
-            PackedByteArray get_device_representation();
-            
-            HDWIGPIOResource() = default;
+            PackedByteArray get_device_representation() const override;
+
 
             // GPIO Handler functions
             void handle_gpio_get(sim_gpio_request_t request);

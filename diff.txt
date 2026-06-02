@@ -1,0 +1,1300 @@
+diff --git a/.sconsign.dblite b/.sconsign.dblite
+index 09f27de..30bcec3 100644
+Binary files a/.sconsign.dblite and b/.sconsign.dblite differ
+diff --git a/godot-fsw-tcp b/godot-fsw-tcp
+index 20bd51f..cd80c8b 160000
+--- a/godot-fsw-tcp
++++ b/godot-fsw-tcp
+@@ -1 +1 @@
+-Subproject commit 20bd51fc0bfb2a29d6b4213f6c111f6f1459ad7c
++Subproject commit cd80c8b8ee376074efbdd3dea67b1e2841eaa50b-dirty
+diff --git a/src/HDWI/gpio/hdwi_gpio.cpp b/src/HDWI/gpio/hdwi_gpio.cpp
+index 6c45dbc..6664fee 100644
+--- a/src/HDWI/gpio/hdwi_gpio.cpp
++++ b/src/HDWI/gpio/hdwi_gpio.cpp
+@@ -1,130 +1,141 @@
+-#include "hdwi_gpio.h"
+-
+-namespace godot {
+-
+-void HDWIGPIOResource::_bind_methods() {
+-    // Call parent class bindings
+-    HDWIResource::_bind_methods();
+-
+-    // @Export variables bindings: line values
+-    ClassDB::bind_method(D_METHOD("set_gpio_values", "gpio_values"), &HDWIGPIOResource::set_gpio_values);
+-    ClassDB::bind_method(D_METHOD("get_gpio_values"), &HDWIGPIOResource::get_gpio_values);
+-    ClassDB::bind_method(D_METHOD("get_device_representation"), &HDWIGPIOResource::get_device_representation);
+-    ClassDB::bind_method(D_METHOD("dispatch_action", "request_data"), &HDWIGPIOResource::dispatch_action);
+-
+-    ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "gpio_values"), "set_gpio_values", "get_gpio_values");
+-    // Signals
+-    ADD_SIGNAL(MethodInfo("on_gpio_line_change", PropertyInfo(Variant::INT, "line_offset"), PropertyInfo(Variant::INT, "new_value")));
+-   
+-}
+-
+-void HDWIGPIOResource::dispatch_action(PackedByteArray request_data) {
+-    UtilityFunctions::print("Received dispatch_action call with request data size: " + String::num_int64(request_data.size()));
+-    // Convert request_data byte data into sim_gpio_request struct
+-    if (request_data.size() < sizeof(sim_gpio_request)) {
+-        // Handle error: not enough data to form a valid request
+-        UtilityFunctions::print("Error: Request data size is too small to form a valid sim_gpio_request struct.");
+-        return;
+-    }
+-
+-    UtilityFunctions::print("Dispatching GPIO action with request data size: " + String::num_int64(request_data.size()));
+-    sim_gpio_request_t request;
+-    memcpy(&request, request_data.ptr(), sizeof(sim_gpio_request_t));
+-    if(request.action == GPIO_SET) {
+-        handle_gpio_set(request);
+-    } else if(request.action == GPIO_DIR_OUT) {
+-        handle_gpio_dir_out(request);
+-    } else if(request.action == GPIO_DIR_IN) {
+-        handle_gpio_dir_in(request);
+-    } else {
+-        handle_gpio_get(request);
+-    }
+-
+-}
+-
+-void HDWIGPIOResource::set_gpio_values(PackedInt32Array p_gpio_values) {
+-    //Find the difference between current gpio_values and new p_gpio_values to determine which lines have changed
+-    for (int i = 0; i < p_gpio_values.size(); i++) {
+-        if (i >= gpio_values.size() || gpio_values.get(i) != p_gpio_values.get(i)) {
+-            // Emit signal for line change
+-            emit_signal("on_gpio_line_change", i, p_gpio_values.get(i));
+-        }
+-    }
+-    //Shrink gpio_dir with the size of gpio_values
+-    gpio_dirs.resize(p_gpio_values.size());
+-    gpio_values = p_gpio_values;
+-}
+-
+-PackedInt32Array HDWIGPIOResource::get_gpio_values() const {
+-    return gpio_values;
+-}
+-
+-
+-
+-// Get device representation as a packed byte array
+-PackedByteArray HDWIGPIOResource::get_device_representation() {
+-    // New packed byte array to hold the device representation
+-    PackedByteArray device_representation = HDWIResource::get_device_representation(); // Start with base representation from parent class
+-    device_representation.push_back(static_cast<char>(type)); // Append device type to representation
+-    // Append number of lines
+-    device_representation.push_back(gpio_values.size());
+-    return device_representation;
+-}
+-
+-// GPIO Handler functions
+-void HDWIGPIOResource::handle_gpio_get(sim_gpio_request_t request) {
+-    // Read the value at offset then emit on_send signal with sim_gpio_response
+-    // as PackedByteArray data
+-    if(request.offset < gpio_values.size()) {
+-        uint8_t value = gpio_values.get(request.offset);
+-        // Create sim_gpio_response struct
+-        sim_gpio_response_t response;
+-        response.value = value;
+-        // Emit signal with response data
+-        PackedByteArray response_data;
+-        response_data.resize(sizeof(sim_gpio_response_t));
+-        memcpy(response_data.ptrw(), &response, sizeof(sim_gpio_response_t));
+-        UtilityFunctions::print("Prepared response data with value: " + String::num_int64(response.value));
+-        PacketCPP *packet = memnew(PacketCPP);
+-        packet->generate(0, CmdType::CMD_ACTION, type, 0, response_data);
+-        UtilityFunctions::print("Emitting on_send signal with response data size: " + String::num_int64(response_data.size()));
+-        emit_signal("on_send", packet->convert_to_bytes());
+-        memdelete(packet);
+-    } else {
+-        // Handle error: offset out of range
+-    }
+-
+-}
+-
+-void HDWIGPIOResource::handle_gpio_set(sim_gpio_request_t request) {
+-    // Set the value at offset to the value in the request, then emit on_send signal to notify of change
+-    if(request.offset < gpio_values.size()) {
+-        gpio_values.set(request.offset, request.value);
+-        // Emit signal for line change
+-        emit_signal("on_gpio_line_change", request.offset, request.value);
+-    } else {
+-        // Handle error: offset out of range
+-    }
+-}
+-
+-void HDWIGPIOResource::handle_gpio_dir_out(sim_gpio_request_t request) {
+-    // Change gpio_dir at offset to output (1)
+-    if(request.offset < gpio_dirs.size()) {
+-        gpio_dirs.set(request.offset, 1);
+-        handle_gpio_get(request); // Set initial value for output line
+-    } else {
+-        // Handle error: offset out of range
+-    }
+-}
+-
+-void HDWIGPIOResource::handle_gpio_dir_in(sim_gpio_request_t request) {
+-    // Change gpio_dir at offset to input (0)
+-    if(request.offset < gpio_dirs.size()) {
+-        gpio_dirs.set(request.offset, 0);
+-        handle_gpio_get(request); // Clear value for input line
+-    } else {
+-        // Handle error: offset out of range
+-    }
+-}
+-
++#include "hdwi_gpio.h"
++
++namespace godot {
++
++void HDWIGPIOResource::_bind_methods() {
++    // Call parent class bindings
++    HDWIResource::_bind_methods();
++
++    // @Export variables bindings: line values
++    ClassDB::bind_method(D_METHOD("set_gpio_values", "gpio_values"), &HDWIGPIOResource::set_gpio_values);
++    ClassDB::bind_method(D_METHOD("get_gpio_values"), &HDWIGPIOResource::get_gpio_values);
++    ClassDB::bind_method(D_METHOD("get_device_representation"), &HDWIGPIOResource::get_device_representation);
++    ClassDB::bind_method(D_METHOD("dispatch_action", "request_data"), &HDWIGPIOResource::dispatch_action);
++    ClassDB::bind_method(D_METHOD("init"), &HDWIGPIOResource::init);
++    ClassDB::bind_method(D_METHOD("clear"), &HDWIGPIOResource::clear);
++
++    ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "gpio_values"), "set_gpio_values", "get_gpio_values");
++    // Signals
++    ADD_SIGNAL(MethodInfo("on_gpio_line_change", PropertyInfo(Variant::INT, "line_offset"), PropertyInfo(Variant::INT, "new_value")));
++
++   
++}
++
++void HDWIGPIOResource::dispatch_action(PackedByteArray request_data) {
++    UtilityFunctions::print("Received dispatch_action call with request data size: " + String::num_int64(request_data.size()));
++    // Convert request_data byte data into sim_gpio_request struct
++    if (request_data.size() < sizeof(sim_gpio_request)) {
++        // Handle error: not enough data to form a valid request
++        UtilityFunctions::print("Error: Request data size is too small to form a valid sim_gpio_request struct.");
++        return;
++    }
++
++    UtilityFunctions::print("Dispatching GPIO action with request data size: " + String::num_int64(request_data.size()));
++    sim_gpio_request_t request;
++    memcpy(&request, request_data.ptr(), sizeof(sim_gpio_request_t));
++    if(request.action == GPIO_SET) {
++        handle_gpio_set(request);
++    } else if(request.action == GPIO_DIR_OUT) {
++        handle_gpio_dir_out(request);
++    } else if(request.action == GPIO_DIR_IN) {
++        handle_gpio_dir_in(request);
++    } else {
++        handle_gpio_get(request);
++    }
++
++}
++
++void HDWIGPIOResource::set_gpio_values(PackedInt32Array p_gpio_values) {
++    //Find the difference between current gpio_values and new p_gpio_values to determine which lines have changed
++    for (int i = 0; i < p_gpio_values.size(); i++) {
++        if (i >= gpio_values.size() || gpio_values.get(i) != p_gpio_values.get(i)) {
++            // Emit signal for line change
++            emit_signal("on_gpio_line_change", i, p_gpio_values.get(i));
++        }
++    }
++    //Shrink gpio_dir with the size of gpio_values
++    gpio_dirs.resize(p_gpio_values.size());
++    gpio_values = p_gpio_values;
++}
++
++PackedInt32Array HDWIGPIOResource::get_gpio_values() const {
++    return gpio_values;
++}
++
++
++
++// Get device representation as a packed byte array
++PackedByteArray HDWIGPIOResource::get_device_representation() const{
++    // New packed byte array to hold the device representation
++    PackedByteArray device_representation = HDWIResource::get_device_representation(); // Start with base representation from parent class
++    device_representation.push_back(static_cast<char>(type)); // Append device type to representation
++    // Append number of lines
++    device_representation.push_back(gpio_values.size());
++    return device_representation;
++}
++
++// GPIO Handler functions
++void HDWIGPIOResource::handle_gpio_get(sim_gpio_request_t request) {
++    // Read the value at offset then emit on_send signal with sim_gpio_response
++    // as PackedByteArray data
++    if(request.offset < gpio_values.size()) {
++        uint8_t value = gpio_values.get(request.offset);
++        // Create sim_gpio_response struct
++        sim_gpio_response_t response;
++        response.value = value;
++        // Emit signal with response data
++        PackedByteArray response_data;
++        response_data.resize(sizeof(sim_gpio_response_t));
++        memcpy(response_data.ptrw(), &response, sizeof(sim_gpio_response_t));
++        UtilityFunctions::print("Prepared response data with value: " + String::num_int64(response.value));
++        PacketCPP *packet = memnew(PacketCPP);
++        packet->generate(0, CmdType::CMD_ACTION, type, 0, response_data);
++        UtilityFunctions::print("Emitting on_send signal with response data size: " + String::num_int64(response_data.size()));
++        emit_signal("on_send", packet->convert_to_bytes());
++        memdelete(packet);
++    } else {
++        // Handle error: offset out of range
++    }
++
++}
++
++void HDWIGPIOResource::handle_gpio_set(sim_gpio_request_t request) {
++    // Set the value at offset to the value in the request, then emit on_send signal to notify of change
++    if(request.offset < gpio_values.size()) {
++        gpio_values.set(request.offset, request.value);
++        // Emit signal for line change
++        emit_signal("on_gpio_line_change", request.offset, request.value);
++    } else {
++        // Handle error: offset out of range
++    }
++}
++
++void HDWIGPIOResource::handle_gpio_dir_out(sim_gpio_request_t request) {
++    // Change gpio_dir at offset to output (1)
++    if(request.offset < gpio_dirs.size()) {
++        gpio_dirs.set(request.offset, 1);
++        handle_gpio_get(request); // Set initial value for output line
++    } else {
++        // Handle error: offset out of range
++    }
++}
++
++void HDWIGPIOResource::handle_gpio_dir_in(sim_gpio_request_t request) {
++    // Change gpio_dir at offset to input (0)
++    if(request.offset < gpio_dirs.size()) {
++        gpio_dirs.set(request.offset, 0);
++        handle_gpio_get(request); // Clear value for input line
++    } else {
++        // Handle error: offset out of range
++    }
++}
++
++// Static member variable definition
++TypedArray<HDWIGPIOResource> HDWIGPIOResource::gpio_resources;
++
++// Get all GPIO resources
++TypedArray<HDWIGPIOResource> HDWIGPIOResource::get_all_gpio_resources() {
++    return gpio_resources;
++}
++
+ }
+\ No newline at end of file
+diff --git a/src/HDWI/gpio/hdwi_gpio.h b/src/HDWI/gpio/hdwi_gpio.h
+index 5b05f80..de20ff5 100644
+--- a/src/HDWI/gpio/hdwi_gpio.h
++++ b/src/HDWI/gpio/hdwi_gpio.h
+@@ -1,83 +1,105 @@
+-#ifndef HDWI_GPIO_H
+-#define HDWI_GPIO_H
+-
+-#include "../hdwi.h"
+-
+-namespace godot {
+-
+-    #pragma pack(push,1)
+-    struct GpioRequest {
+-        uint8_t action;   // SET / GET / DIR_IN / DIR_OUT / GET_DIR
+-        uint8_t offset;   // line number, 0..ngpio-1
+-        uint8_t value;    // SET / DIR_OUT initial level (0/1); ignored otherwise
+-    };                    // 3 bytes
+-    struct GpioResponse {
+-        uint8_t status;   // 0 = OK
+-        uint8_t value;    // GET / GET_DIR result; else 0
+-    };                    // 2 bytes
+-    #pragma pack(pop)
+-
+-
+-    typedef uint8_t gpio_action_t;
+-    // GPIO action constants
+-    #define GPIO_GET       ((gpio_action_t)0x01)
+-    #define GPIO_SET       ((gpio_action_t)0x02)
+-    #define GPIO_DIR_OUT   ((gpio_action_t)0x03)
+-    #define GPIO_DIR_IN    ((gpio_action_t)0x04)
+-
+-    typedef struct sim_gpio_request {
+-        gpio_action_t action;
+-        uint8_t offset;
+-        uint8_t value;  // for set and dir_out
+-    } sim_gpio_request_t;
+-
+-    typedef struct sim_gpio_response {
+-        uint8_t value;  // for get and dir_in
+-    } sim_gpio_response_t;
+-
+-
+-    class HDWIGPIOResource : public HDWIResource {
+-        GDCLASS(HDWIGPIOResource, HDWIResource)
+-        private:
+-            // No member variables needed for now, but can be added later if necessary
+-            HDWIType type = HDWIType::GPIO;
+-            // PackedInt32Array to hold the dir of each lines
+-            PackedInt32Array gpio_dirs; // 0 for input, 1 for output
+-
+-        protected:
+-            static void _bind_methods();
+-        
+-        public:
+-            // Signals
+-            // Component - (HDWI) -> CommSeq
+-            void on_send();
+-            //GPIO line changes signals
+-            void on_gpio_line_change(uint8_t line_offset, uint8_t new_value);
+-            
+-            // Methods
+-            // Comm - (Device Registry -> Component's HDWI Resource) -> HDWI
+-            virtual void dispatch_action(PackedByteArray request_data) override;
+-
+-            // @export array of values, representing line offset and their values.
+-            // Its length the ngpio.
+-            PackedInt32Array gpio_values;
+-            void set_gpio_values(PackedInt32Array p_gpio_values);
+-            PackedInt32Array get_gpio_values() const;
+-
+-            // Get device representation as a packed byte array
+-            PackedByteArray get_device_representation();
+-            
+-            HDWIGPIOResource() = default;
+-
+-            // GPIO Handler functions
+-            void handle_gpio_get(sim_gpio_request_t request);
+-            void handle_gpio_set(sim_gpio_request_t request);
+-            void handle_gpio_dir_out(sim_gpio_request_t request);
+-            void handle_gpio_dir_in(sim_gpio_request_t request);
+-
+-    };
+-
+-}
+-
+-
++#ifndef HDWI_GPIO_H
++#define HDWI_GPIO_H
++
++#include "../hdwi.h"
++#include <godot_cpp/variant/typed_array.hpp>
++#include <godot_cpp/variant/packed_byte_array.hpp>
++
++namespace godot {
++
++    #pragma pack(push,1)
++    struct GpioRequest {
++        uint8_t action;   // SET / GET / DIR_IN / DIR_OUT / GET_DIR
++        uint8_t offset;   // line number, 0..ngpio-1
++        uint8_t value;    // SET / DIR_OUT initial level (0/1); ignored otherwise
++    };                    // 3 bytes
++    struct GpioResponse {
++        uint8_t status;   // 0 = OK
++        uint8_t value;    // GET / GET_DIR result; else 0
++    };                    // 2 bytes
++    #pragma pack(pop)
++
++
++    typedef uint8_t gpio_action_t;
++    // GPIO action constants
++    #define GPIO_GET       ((gpio_action_t)0x01)
++    #define GPIO_SET       ((gpio_action_t)0x02)
++    #define GPIO_DIR_OUT   ((gpio_action_t)0x03)
++    #define GPIO_DIR_IN    ((gpio_action_t)0x04)
++
++    typedef struct sim_gpio_request {
++        gpio_action_t action;
++        uint8_t offset;
++        uint8_t value;  // for set and dir_out
++    } sim_gpio_request_t;
++
++    typedef struct sim_gpio_response {
++        uint8_t value;  // for get and dir_in
++    } sim_gpio_response_t;
++
++
++    class HDWIGPIOResource : public HDWIResource {
++        GDCLASS(HDWIGPIOResource, HDWIResource)
++        private:
++            // No member variables needed for now, but can be added later if necessary
++            HDWIType type = HDWIType::GPIO;
++            // PackedInt32Array to hold the dir of each lines
++            PackedInt32Array gpio_dirs; // 0 for input, 1 for output
++            // PackedInt32Array to hold the value of each lines
++
++        protected:
++            static void _bind_methods();
++        
++        public:
++
++            static TypedArray<HDWIGPIOResource> gpio_resources; // Static array to hold all GPIO resources for group representation
++
++
++            HDWIGPIOResource() = default;
++
++            ~HDWIGPIOResource() = default;
++
++            void init(){
++                HDWIGPIOResource::gpio_resources.append(this); // Add this instance to the static array of GPIO resources
++            }
++
++            void clear() {
++                // Remove this instance from the static array of GPIO resources upon destruction
++                HDWIGPIOResource::gpio_resources.erase(this);
++            }
++            // Signals
++            // Component - (HDWI) -> CommSeq
++
++            void on_send();
++            //GPIO line changes signals
++            void on_gpio_line_change(uint8_t line_offset, uint8_t new_value);
++            
++            // Methods
++            // Comm - (Device Registry -> Component's HDWI Resource) -> HDWI
++            virtual void dispatch_action(PackedByteArray request_data) override;
++
++            // @export array of values, representing line offset and their values.
++            // Its length the ngpio.
++            PackedInt32Array gpio_values;
++            void set_gpio_values(PackedInt32Array p_gpio_values);
++            PackedInt32Array get_gpio_values() const;
++
++            // Get all the devices of this type for group representation
++            static TypedArray<HDWIGPIOResource> get_all_gpio_resources();
++
++            // Get device representation as a packed byte array
++            PackedByteArray get_device_representation() const override;
++
++
++            // GPIO Handler functions
++            void handle_gpio_get(sim_gpio_request_t request);
++            void handle_gpio_set(sim_gpio_request_t request);
++            void handle_gpio_dir_out(sim_gpio_request_t request);
++            void handle_gpio_dir_in(sim_gpio_request_t request);
++
++    };
++
++}
++
++
+ #endif
+\ No newline at end of file
+diff --git a/src/HDWI/gpio/hdwi_gpio.windows.template_debug.x86_64.obj b/src/HDWI/gpio/hdwi_gpio.windows.template_debug.x86_64.obj
+index 9556b9a..a9681b6 100644
+Binary files a/src/HDWI/gpio/hdwi_gpio.windows.template_debug.x86_64.obj and b/src/HDWI/gpio/hdwi_gpio.windows.template_debug.x86_64.obj differ
+diff --git a/src/HDWI/hdwi.cpp b/src/HDWI/hdwi.cpp
+index a1dbbd7..c7adeff 100644
+--- a/src/HDWI/hdwi.cpp
++++ b/src/HDWI/hdwi.cpp
+@@ -1,45 +1,48 @@
+-#include "hdwi.h"
+-
+-namespace godot {
+-
+-void HDWIResource::_bind_methods() {
+-    // Component - (HDWI) -> CommSeq
+-    ADD_SIGNAL(MethodInfo("on_send", PropertyInfo(Variant::OBJECT, "packet")));
+-    // Methods
+-    ClassDB::bind_method(D_METHOD("dispatch_action"), &HDWIResource::dispatch_action);
+-    // @Export variables bindings
+-    ClassDB::bind_method(D_METHOD("set_device_name", "device_name"), &HDWIResource::set_device_name);
+-    ClassDB::bind_method(D_METHOD("get_device_name"), &HDWIResource::get_device_name);
+-
+-    ADD_PROPERTY(PropertyInfo(Variant::STRING, "device_name"), "set_device_name", "get_device_name");
+-}
+-
+-// Setters and getters for device_name
+-void HDWIResource::set_device_name(const String &p_device_name) {
+-    device_name = p_device_name;    
+-}
+-
+-String HDWIResource::get_device_name() const {
+-    return device_name;
+-}
+-
+-PackedByteArray HDWIResource::get_device_representation() const {
+-    // New packed byte array to hold the device representation
+-    PackedByteArray device_representation;
+-
+-    // Include device name, type and number of lines in the representation
+-    // For simplicity, we will just convert these to bytes and append them to the array
+-    // Convert device name to bytes and append
+-    String device_name = get_device_name();
+-    char device_name_bytes[32] = {0};
+-    strcpy(device_name_bytes, device_name.utf8().get_data());
+-    for (int i = 0; i < 32; i++) {
+-        device_representation.push_back(static_cast<char>(device_name_bytes[i]));
+-    }
+-
+-    device_representation.resize(32);
+-    return device_representation;
+-}
+-
+-
++#include "hdwi.h"
++
++namespace godot {
++
++void HDWIResource::_bind_methods() {
++    // Component - (HDWI) -> CommSeq
++    ADD_SIGNAL(MethodInfo("on_send", PropertyInfo(Variant::OBJECT, "packet")));
++    // Methods
++    ClassDB::bind_method(D_METHOD("dispatch_action"), &HDWIResource::dispatch_action);
++    // @Export variables bindings
++    ClassDB::bind_method(D_METHOD("set_device_name", "device_name"), &HDWIResource::set_device_name);
++    ClassDB::bind_method(D_METHOD("get_device_name"), &HDWIResource::get_device_name);
++
++    ADD_PROPERTY(PropertyInfo(Variant::STRING, "device_name"), "set_device_name", "get_device_name");
++}
++
++// Setters and getters for device_name
++void HDWIResource::set_device_name(const String &p_device_name) {
++    device_name = p_device_name;    
++}
++
++String HDWIResource::get_device_name() const {
++    return device_name;
++}
++
++
++
++
++PackedByteArray HDWIResource::get_device_representation() const {
++    // New packed byte array to hold the device representation
++    PackedByteArray device_representation;
++
++    // Include device name, type and number of lines in the representation
++    // For simplicity, we will just convert these to bytes and append them to the array
++    // Convert device name to bytes and append
++    String device_name = get_device_name();
++    char device_name_bytes[32] = {0};
++    strcpy(device_name_bytes, device_name.utf8().get_data());
++    for (int i = 0; i < 32; i++) {
++        device_representation.push_back(static_cast<char>(device_name_bytes[i]));
++    }
++
++    device_representation.resize(32);
++    return device_representation;
++}
++
++
+ }
+\ No newline at end of file
+diff --git a/src/HDWI/hdwi.h b/src/HDWI/hdwi.h
+index 4f8a40f..fc4bb92 100644
+--- a/src/HDWI/hdwi.h
++++ b/src/HDWI/hdwi.h
+@@ -1,52 +1,52 @@
+-#ifndef HDWI_H
+-#define HDWI_H
+-
+-#include <cstdint>
+-#include <godot_cpp/core/class_db.hpp>
+-#include <godot_cpp/classes/resource.hpp>
+-#include "../IPC/packet.h"
+-
+-
+-
+-namespace godot {
+-
+-    class HDWIResource : public Resource {
+-        GDCLASS(HDWIResource, Resource)
+-        private:
+-            // No member variables needed for now, but can be added later if necessary
+-            HDWIType type;
+-        
+-        protected:
+-            static void _bind_methods();
+-        
+-        public:
+-            // Device name @export variable, setter and getters
+-            String device_name;
+-            void set_device_name(const String &p_device_name);
+-            String get_device_name() const;
+-
+-            // Getter for device type
+-            HDWIType get_type() {
+-                return type;
+-            };
+-
+-            // Get device representation as a packed byte array
+-            virtual PackedByteArray get_device_representation() const;
+-
+-            // Signals
+-            // Component - (HDWI) -> CommSeq
+-            void on_send();
+-
+-            // Methods
+-            // Comm - (Device Registry -> Component's HDWI Resource) -> HDWI
+-            virtual void dispatch_action(PackedByteArray request_data) = 0;
+-            
+-            HDWIResource() = default;
+-
+-    };
+-}
+-
+-
+-
+-
++#ifndef HDWI_H
++#define HDWI_H
++
++#include <cstdint>
++#include <godot_cpp/core/class_db.hpp>
++#include <godot_cpp/classes/resource.hpp>
++#include "../IPC/packet.h"
++
++
++
++namespace godot {
++
++    class HDWIResource : public Resource {
++        GDCLASS(HDWIResource, Resource)
++        private:
++            // No member variables needed for now, but can be added later if necessary
++            HDWIType type;
++        
++        protected:
++            static void _bind_methods();
++        
++        public:
++            // Device name @export variable, setter and getters
++            String device_name;
++            void set_device_name(const String &p_device_name);
++            String get_device_name() const;
++
++            // Getter for device type
++            HDWIType get_type() {
++                return type;
++            };
++
++            // Get device representation as a packed byte array
++            virtual PackedByteArray get_device_representation() const;
++
++            // Signals
++            // Component - (HDWI) -> CommSeq
++            void on_send();
++
++            // Methods
++            // Comm - (Device Registry -> Component's HDWI Resource) -> HDWI
++            virtual void dispatch_action(PackedByteArray request_data) = 0;
++            
++            HDWIResource() = default;
++
++    };
++}
++
++
++
++
+ #endif
+\ No newline at end of file
+diff --git a/src/HDWI/hdwi.windows.template_debug.x86_64.obj b/src/HDWI/hdwi.windows.template_debug.x86_64.obj
+index cd9be05..63adfb4 100644
+Binary files a/src/HDWI/hdwi.windows.template_debug.x86_64.obj and b/src/HDWI/hdwi.windows.template_debug.x86_64.obj differ
+diff --git a/src/HDWI/hdwi_type.h b/src/HDWI/hdwi_type.h
+index 5f05bd3..504c802 100644
+--- a/src/HDWI/hdwi_type.h
++++ b/src/HDWI/hdwi_type.h
+@@ -1,18 +1,18 @@
+-#ifndef HDWI_TYPE_H
+-#define HDWI_TYPE_H
+-
+-
+-#include <cstdint>
+-
+-namespace godot {
+-
+-    enum class HDWIType : uint8_t {
+-        GPIO = 0,
+-        UART = 1,
+-        I2C = 2,
+-        SPI = 3,
+-    };
+-
+-}
+-
++#ifndef HDWI_TYPE_H
++#define HDWI_TYPE_H
++
++
++#include <cstdint>
++
++namespace godot {
++
++    enum class HDWIType : uint8_t {
++        GPIO = 0,
++        UART = 1,
++        I2C = 2,
++        SPI = 3,
++    };
++
++}
++
+ #endif
+\ No newline at end of file
+diff --git a/src/IPC/packet.cpp b/src/IPC/packet.cpp
+index 0ddd2c7..393eab4 100644
+--- a/src/IPC/packet.cpp
++++ b/src/IPC/packet.cpp
+@@ -1,136 +1,136 @@
+-#include "packet.h"
+-#include <godot_cpp/core/class_db.hpp>
+-
+-using namespace godot;
+-
+-
+-PacketCPP::PacketCPP() {
+-    this->valid = false;
+-}
+-
+-PacketCPP::~PacketCPP() {
+-    // No dynamic memory to free, so nothing to do here
+-}
+-
+-//Bind all methods and write appropriate signatures for Godot to recognize type + field type correction
+-void PacketCPP::_bind_methods() {
+-    ClassDB::bind_method(D_METHOD("generate", "device_index", "cmd_type", "hdwi_type", "time_ns", "bytes"), &PacketCPP::generate);
+-    ClassDB::bind_method(D_METHOD("generate_from_bytes", "header_bytes"), &PacketCPP::generate_from_bytes);
+-    ClassDB::bind_method(D_METHOD("get_validity"), &PacketCPP::get_validity);
+-    ClassDB::bind_method(D_METHOD("get_cmd_id"), &PacketCPP::get_cmd_id);
+-    ClassDB::bind_method(D_METHOD("get_type"), &PacketCPP::get_type);
+-    ClassDB::bind_method(D_METHOD("get_device_index"), &PacketCPP::get_device_index);
+-    ClassDB::bind_method(D_METHOD("get_time_ns"), &PacketCPP::get_time_ns);
+-    ClassDB::bind_method(D_METHOD("get_data_len"), &PacketCPP::get_data_len);
+-    ClassDB::bind_method(D_METHOD("_to_string"), &PacketCPP::_to_string);
+-    ClassDB::bind_method(D_METHOD("set_data", "data"), &PacketCPP::set_data);
+-    ClassDB::bind_method(D_METHOD("get_data"), &PacketCPP::get_data);
+-    ClassDB::bind_static_method("PacketCPP", D_METHOD("get_header_len"), &PacketCPP::get_header_len);
+-    ClassDB::bind_method(D_METHOD("convert_to_bytes"), &PacketCPP::convert_to_bytes);
+-
+-    // In _bind_methods()
+-    ClassDB::bind_integer_constant(get_class_static(), "CmdType", "CMD_SYNCH",  (int64_t)CmdType::CMD_SYNCH);
+-    ClassDB::bind_integer_constant(get_class_static(), "CmdType", "CMD_ACTION", (int64_t)CmdType::CMD_ACTION);
+-
+-    ClassDB::bind_integer_constant(get_class_static(), "HDWIType", "GPIO", (int64_t)HDWIType::GPIO);
+-    
+-
+-}
+-
+-
+-void PacketCPP::generate(uint8_t device_index, 
+-                CmdType cmd_type, 
+-                HDWIType hdwi_type,
+-                uint64_t time_ns,
+-                PackedByteArray bytes) {
+-    this->header = {0};
+-    this->header.version = VERSION;
+-    this->header.cmd_id = cmd_type;
+-    this->header.device_index = device_index;
+-    this->header.type = hdwi_type;
+-    this->header.time_ns = time_ns;
+-    this->data = bytes;
+-    this->header.data_len = bytes.size();
+-}  
+-
+-void PacketCPP::generate_from_bytes(PackedByteArray header_bytes) {
+-    this->header = {0};
+-    this->header = *((PacketHeader*)header_bytes.ptrw());
+-    if(this->header.version != VERSION || unlikely(header_bytes.size() != sizeof(PacketHeader))) {
+-        this->valid = false;
+-    } else {
+-        this->valid = true;
+-    }
+-}
+-
+-
+-
+-bool PacketCPP::get_validity() {
+-    return this->valid;
+-}
+-
+-uint32_t PacketCPP::get_header_length() {
+-    return sizeof(PacketHeader);
+-}
+-
+-uint32_t PacketCPP::get_header_len() {
+-    return sizeof(PacketHeader);
+-}
+-
+-int64_t PacketCPP::get_cmd_id() {
+-    return (int64_t)header.cmd_id;
+-}
+-int64_t PacketCPP::get_type() {
+-    return (int64_t)header.type;
+-}
+-uint8_t PacketCPP::get_device_index() {
+-    return header.device_index;
+-}
+-uint64_t PacketCPP::get_time_ns() {
+-    return header.time_ns;
+-
+-}
+-uint32_t PacketCPP::get_data_len() {
+-    return header.data_len;
+-
+-}
+-
+-// This method is for debugging, print all header field + data as bytes
+-String PacketCPP::_to_string() const {
+-    String result = "PacketCPP { ";
+-    result += "version: " + String::num_int64(header.version) + ", ";
+-    if(header.cmd_id == CmdType::CMD_SYNCH) {
+-        result += "cmd_id: CMD_SYNCH, ";
+-    } else if(header.cmd_id == CmdType::CMD_ACTION) {
+-        result += "cmd_id: CMD_ACTION, ";
+-    } else {
+-        result += "cmd_id: UNKNOWN, ";
+-    }
+-    result += "type: " + String::num_int64((uint8_t)header.type) + ", ";
+-    result += "device_index: " + String::num_int64(header.device_index) + ", ";
+-    result += "time_ns: " + String::num_int64(header.time_ns) + ", ";
+-    result += "data_len: " + String::num_int64(header.data_len) + ", ";
+-    result += "data: " + data.hex_encode();
+-    result += " }";
+-    return result;
+-}
+-
+-void PacketCPP::set_data(PackedByteArray data) {
+-    this->data = data;
+-    this->header.data_len = data.size();
+-}
+-
+-PackedByteArray PacketCPP::get_data() const {
+-    return this->data;
+-}
+-
+-
+-PackedByteArray PacketCPP::convert_to_bytes() {
+-    PackedByteArray bytes;
+-    bytes.resize(sizeof(PacketHeader) + this->data.size());
+-    // Copy header
+-    memcpy(bytes.ptrw(), &this->header, sizeof(PacketHeader));
+-    // Copy data
+-    memcpy(bytes.ptrw() + sizeof(PacketHeader), this->data.ptr(), this->data.size());
+-    return bytes;
++#include "packet.h"
++#include <godot_cpp/core/class_db.hpp>
++
++using namespace godot;
++
++
++PacketCPP::PacketCPP() {
++    this->valid = false;
++}
++
++PacketCPP::~PacketCPP() {
++    // No dynamic memory to free, so nothing to do here
++}
++
++//Bind all methods and write appropriate signatures for Godot to recognize type + field type correction
++void PacketCPP::_bind_methods() {
++    ClassDB::bind_method(D_METHOD("generate", "device_index", "cmd_type", "hdwi_type", "time_ns", "bytes"), &PacketCPP::generate);
++    ClassDB::bind_method(D_METHOD("generate_from_bytes", "header_bytes"), &PacketCPP::generate_from_bytes);
++    ClassDB::bind_method(D_METHOD("get_validity"), &PacketCPP::get_validity);
++    ClassDB::bind_method(D_METHOD("get_cmd_id"), &PacketCPP::get_cmd_id);
++    ClassDB::bind_method(D_METHOD("get_type"), &PacketCPP::get_type);
++    ClassDB::bind_method(D_METHOD("get_device_index"), &PacketCPP::get_device_index);
++    ClassDB::bind_method(D_METHOD("get_time_ns"), &PacketCPP::get_time_ns);
++    ClassDB::bind_method(D_METHOD("get_data_len"), &PacketCPP::get_data_len);
++    ClassDB::bind_method(D_METHOD("_to_string"), &PacketCPP::_to_string);
++    ClassDB::bind_method(D_METHOD("set_data", "data"), &PacketCPP::set_data);
++    ClassDB::bind_method(D_METHOD("get_data"), &PacketCPP::get_data);
++    ClassDB::bind_static_method("PacketCPP", D_METHOD("get_header_len"), &PacketCPP::get_header_len);
++    ClassDB::bind_method(D_METHOD("convert_to_bytes"), &PacketCPP::convert_to_bytes);
++
++    // In _bind_methods()
++    ClassDB::bind_integer_constant(get_class_static(), "CmdType", "CMD_SYNCH",  (int64_t)CmdType::CMD_SYNCH);
++    ClassDB::bind_integer_constant(get_class_static(), "CmdType", "CMD_ACTION", (int64_t)CmdType::CMD_ACTION);
++
++    ClassDB::bind_integer_constant(get_class_static(), "HDWIType", "GPIO", (int64_t)HDWIType::GPIO);
++    
++
++}
++
++
++void PacketCPP::generate(uint8_t device_index, 
++                CmdType cmd_type, 
++                HDWIType hdwi_type,
++                uint64_t time_ns,
++                PackedByteArray bytes) {
++    this->header = {0};
++    this->header.version = VERSION;
++    this->header.cmd_id = cmd_type;
++    this->header.device_index = device_index;
++    this->header.type = hdwi_type;
++    this->header.time_ns = time_ns;
++    this->data = bytes;
++    this->header.data_len = bytes.size();
++}  
++
++void PacketCPP::generate_from_bytes(PackedByteArray header_bytes) {
++    this->header = {0};
++    this->header = *((PacketHeader*)header_bytes.ptrw());
++    if(this->header.version != VERSION || unlikely(header_bytes.size() != sizeof(PacketHeader))) {
++        this->valid = false;
++    } else {
++        this->valid = true;
++    }
++}
++
++
++
++bool PacketCPP::get_validity() {
++    return this->valid;
++}
++
++uint32_t PacketCPP::get_header_length() {
++    return sizeof(PacketHeader);
++}
++
++uint32_t PacketCPP::get_header_len() {
++    return sizeof(PacketHeader);
++}
++
++int64_t PacketCPP::get_cmd_id() {
++    return (int64_t)header.cmd_id;
++}
++int64_t PacketCPP::get_type() {
++    return (int64_t)header.type;
++}
++uint8_t PacketCPP::get_device_index() {
++    return header.device_index;
++}
++uint64_t PacketCPP::get_time_ns() {
++    return header.time_ns;
++
++}
++uint32_t PacketCPP::get_data_len() {
++    return header.data_len;
++
++}
++
++// This method is for debugging, print all header field + data as bytes
++String PacketCPP::_to_string() const {
++    String result = "PacketCPP { ";
++    result += "version: " + String::num_int64(header.version) + ", ";
++    if(header.cmd_id == CmdType::CMD_SYNCH) {
++        result += "cmd_id: CMD_SYNCH, ";
++    } else if(header.cmd_id == CmdType::CMD_ACTION) {
++        result += "cmd_id: CMD_ACTION, ";
++    } else {
++        result += "cmd_id: UNKNOWN, ";
++    }
++    result += "type: " + String::num_int64((uint8_t)header.type) + ", ";
++    result += "device_index: " + String::num_int64(header.device_index) + ", ";
++    result += "time_ns: " + String::num_int64(header.time_ns) + ", ";
++    result += "data_len: " + String::num_int64(header.data_len) + ", ";
++    result += "data: " + data.hex_encode();
++    result += " }";
++    return result;
++}
++
++void PacketCPP::set_data(PackedByteArray data) {
++    this->data = data;
++    this->header.data_len = data.size();
++}
++
++PackedByteArray PacketCPP::get_data() const {
++    return this->data;
++}
++
++
++PackedByteArray PacketCPP::convert_to_bytes() {
++    PackedByteArray bytes;
++    bytes.resize(sizeof(PacketHeader) + this->data.size());
++    // Copy header
++    memcpy(bytes.ptrw(), &this->header, sizeof(PacketHeader));
++    // Copy data
++    memcpy(bytes.ptrw() + sizeof(PacketHeader), this->data.ptr(), this->data.size());
++    return bytes;
+ }
+\ No newline at end of file
+diff --git a/src/IPC/packet.h b/src/IPC/packet.h
+index c864c4f..530a614 100644
+--- a/src/IPC/packet.h
++++ b/src/IPC/packet.h
+@@ -1,82 +1,82 @@
+-#ifndef PACKET_H
+-#define PACKET_H
+-
+-
+-#include "../HDWI/hdwi_type.h"
+-#include <godot_cpp/classes/node.hpp>
+-#include <godot_cpp/variant/packed_byte_array.hpp>
+-#include <cstdint>
+-
+-
+-namespace godot {
+-
+-    
+-    #define VERSION 4
+-
+-     enum class CmdType : uint8_t {
+-                CMD_SYNCH = 1,
+-                CMD_ACTION = 2
+-            };
+-
+-
+-    struct PacketHeader {
+-        uint16_t version;
+-        CmdType cmd_id;
+-        HDWIType type;
+-        uint8_t device_index;
+-        char reversed[3];
+-        uint64_t time_ns;
+-        uint32_t data_len;
+-    };
+-
+-
+-
+-
+-
+-    class PacketCPP : public RefCounted {
+-        GDCLASS(PacketCPP, RefCounted)
+-        private:
+-            bool valid = false;
+-            PacketHeader header;
+-            PackedByteArray data;
+-        
+-        protected:
+-            static void _bind_methods();
+-        
+-        public:
+-            static uint32_t get_header_length();
+-
+-           
+-
+-            
+-            PacketCPP();
+-
+-            void generate(uint8_t device_index, 
+-                CmdType cmd_type, 
+-                HDWIType hdwi_type,
+-                uint64_t time_ns,
+-                PackedByteArray bytes);
+-
+-            void generate_from_bytes(PackedByteArray header_bytes);
+-            ~PacketCPP();
+-            bool get_validity();
+-
+-            int64_t get_cmd_id();
+-            int64_t get_type();
+-            uint8_t get_device_index();
+-            uint64_t get_time_ns();
+-            static uint32_t get_header_len();
+-            uint32_t get_data_len();
+-            String _to_string() const;
+-            void set_data(PackedByteArray data);
+-            PackedByteArray get_data() const;
+-            PackedByteArray convert_to_bytes();
+-
+-    };
+-}
+-
+-VARIANT_ENUM_CAST(godot::CmdType);
+-VARIANT_ENUM_CAST(godot::HDWIType);
+-
+-
++#ifndef PACKET_H
++#define PACKET_H
++
++
++#include "../HDWI/hdwi_type.h"
++#include <godot_cpp/classes/node.hpp>
++#include <godot_cpp/variant/packed_byte_array.hpp>
++#include <cstdint>
++
++
++namespace godot {
++
++    
++    #define VERSION 4
++
++     enum class CmdType : uint8_t {
++                CMD_SYNCH = 1,
++                CMD_ACTION = 2
++            };
++
++
++    struct PacketHeader {
++        uint16_t version;
++        CmdType cmd_id;
++        HDWIType type;
++        uint8_t device_index;
++        char reversed[3];
++        uint64_t time_ns;
++        uint32_t data_len;
++    };
++
++
++
++
++
++    class PacketCPP : public RefCounted {
++        GDCLASS(PacketCPP, RefCounted)
++        private:
++            bool valid = false;
++            PacketHeader header;
++            PackedByteArray data;
++        
++        protected:
++            static void _bind_methods();
++        
++        public:
++            static uint32_t get_header_length();
++
++           
++
++            
++            PacketCPP();
++
++            void generate(uint8_t device_index, 
++                CmdType cmd_type, 
++                HDWIType hdwi_type,
++                uint64_t time_ns,
++                PackedByteArray bytes);
++
++            void generate_from_bytes(PackedByteArray header_bytes);
++            ~PacketCPP();
++            bool get_validity();
++
++            int64_t get_cmd_id();
++            int64_t get_type();
++            uint8_t get_device_index();
++            uint64_t get_time_ns();
++            static uint32_t get_header_len();
++            uint32_t get_data_len();
++            String _to_string() const;
++            void set_data(PackedByteArray data);
++            PackedByteArray get_data() const;
++            PackedByteArray convert_to_bytes();
++
++    };
++}
++
++VARIANT_ENUM_CAST(godot::CmdType);
++VARIANT_ENUM_CAST(godot::HDWIType);
++
++
+ #endif
+\ No newline at end of file
+diff --git a/src/register_types.cpp b/src/register_types.cpp
+index 0a3c4d0..fd2d7fe 100644
+--- a/src/register_types.cpp
++++ b/src/register_types.cpp
+@@ -1,42 +1,44 @@
+-#include "register_types.h"
+-#include "IPC/packet.h"
+-#include "HDWI/hdwi.h"
+-#include "HDWI/gpio/hdwi_gpio.h"
+-
+-#include <gdextension_interface.h>
+-#include <godot_cpp/core/defs.hpp>
+-#include <godot_cpp/godot.hpp>
+-
+-using namespace godot;
+-
+-
+-void initialize_module(ModuleInitializationLevel p_level) {
+-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
+-		return;
+-	}
+-
+-	GDREGISTER_CLASS(PacketCPP);
+-    GDREGISTER_ABSTRACT_CLASS(HDWIResource);
+-    GDREGISTER_CLASS(HDWIGPIOResource);
+-
+-}
+-
+-void uninitialize_module(ModuleInitializationLevel p_level) {
+-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
+-		return;
+-	}
+-}
+-
+-extern "C" {
+-// Initialization.
+-    GDExtensionBool GDE_EXPORT sim_library_init(GDExtensionInterfaceGetProcAddress p_get_proc_address, const GDExtensionClassLibraryPtr p_library, GDExtensionInitialization *r_initialization) {
+-        godot::GDExtensionBinding::InitObject init_obj(p_get_proc_address, p_library, r_initialization);
+-
+-        init_obj.register_initializer(initialize_module);
+-        init_obj.register_terminator(uninitialize_module);
+-        init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_SCENE);
+-
+-        return init_obj.init();
+-    }
+-}
+-
++#include "register_types.h"
++#include "IPC/packet.h"
++#include "HDWI/hdwi.h"
++#include "HDWI/gpio/hdwi_gpio.h"
++#include "HDWI/spi/hdwi_spi.h"
++
++#include <gdextension_interface.h>
++#include <godot_cpp/core/defs.hpp>
++#include <godot_cpp/godot.hpp>
++
++using namespace godot;
++
++
++void initialize_module(ModuleInitializationLevel p_level) {
++	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
++		return;
++	}
++
++	GDREGISTER_CLASS(PacketCPP);
++    GDREGISTER_ABSTRACT_CLASS(HDWIResource);
++    GDREGISTER_CLASS(HDWIGPIOResource);
++    GDREGISTER_CLASS(HDWISPIResource);
++
++}
++
++void uninitialize_module(ModuleInitializationLevel p_level) {
++	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
++		return;
++	}
++}
++
++extern "C" {
++// Initialization.
++    GDExtensionBool GDE_EXPORT sim_library_init(GDExtensionInterfaceGetProcAddress p_get_proc_address, const GDExtensionClassLibraryPtr p_library, GDExtensionInitialization *r_initialization) {
++        godot::GDExtensionBinding::InitObject init_obj(p_get_proc_address, p_library, r_initialization);
++
++        init_obj.register_initializer(initialize_module);
++        init_obj.register_terminator(uninitialize_module);
++        init_obj.set_minimum_library_initialization_level(MODULE_INITIALIZATION_LEVEL_SCENE);
++
++        return init_obj.init();
++    }
++}
++
+diff --git a/src/register_types.h b/src/register_types.h
+index 9d417be..0095af5 100644
+--- a/src/register_types.h
++++ b/src/register_types.h
+@@ -1,11 +1,11 @@
+-#ifndef SIM_REGISTER_TYPES_H
+-#define SIM_TYPES_H
+-
+-#include <godot_cpp/core/class_db.hpp>
+-
+-using namespace godot;
+-
+-void initialize_module(ModuleInitializationLevel p_level);
+-void uninitialize_module(ModuleInitializationLevel p_level);
+-
++#ifndef SIM_REGISTER_TYPES_H
++#define SIM_TYPES_H
++
++#include <godot_cpp/core/class_db.hpp>
++
++using namespace godot;
++
++void initialize_module(ModuleInitializationLevel p_level);
++void uninitialize_module(ModuleInitializationLevel p_level);
++
+ #endif
+\ No newline at end of file
+diff --git a/src/register_types.windows.template_debug.x86_64.obj b/src/register_types.windows.template_debug.x86_64.obj
+index 272c451..4c0a37a 100644
+Binary files a/src/register_types.windows.template_debug.x86_64.obj and b/src/register_types.windows.template_debug.x86_64.obj differ

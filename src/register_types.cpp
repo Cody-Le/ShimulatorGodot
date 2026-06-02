@@ -2,6 +2,7 @@
 #include "IPC/packet.h"
 #include "HDWI/hdwi.h"
 #include "HDWI/gpio/hdwi_gpio.h"
+#include "HDWI/spi/hdwi_spi.h"
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/defs.hpp>

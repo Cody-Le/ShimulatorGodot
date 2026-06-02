@@ -11,10 +11,13 @@ void HDWIGPIOResource::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_gpio_values"), &HDWIGPIOResource::get_gpio_values);
     ClassDB::bind_method(D_METHOD("get_device_representation"), &HDWIGPIOResource::get_device_representation);
     ClassDB::bind_method(D_METHOD("dispatch_action", "request_data"), &HDWIGPIOResource::dispatch_action);
+    ClassDB::bind_method(D_METHOD("init"), &HDWIGPIOResource::init);
+    ClassDB::bind_method(D_METHOD("clear"), &HDWIGPIOResource::clear);
 
     ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "gpio_values"), "set_gpio_values", "get_gpio_values");
     // Signals
     ADD_SIGNAL(MethodInfo("on_gpio_line_change", PropertyInfo(Variant::INT, "line_offset"), PropertyInfo(Variant::INT, "new_value")));
+
    
 }
 
@@ -62,7 +65,7 @@ PackedInt32Array HDWIGPIOResource::get_gpio_values() const {
 
 
 // Get device representation as a packed byte array
-PackedByteArray HDWIGPIOResource::get_device_representation() {
+PackedByteArray HDWIGPIOResource::get_device_representation() const{
     // New packed byte array to hold the device representation
     PackedByteArray device_representation = HDWIResource::get_device_representation(); // Start with base representation from parent class
     device_representation.push_back(static_cast<char>(type)); // Append device type to representation
@@ -125,6 +128,14 @@ void HDWIGPIOResource::handle_gpio_dir_in(sim_gpio_request_t request) {
     } else {
         // Handle error: offset out of range
     }
+}
+
+// Static member variable definition
+TypedArray<HDWIGPIOResource> HDWIGPIOResource::gpio_resources;
+
+// Get all GPIO resources
+TypedArray<HDWIGPIOResource> HDWIGPIOResource::get_all_gpio_resources() {
+    return gpio_resources;
 }
 
 }
