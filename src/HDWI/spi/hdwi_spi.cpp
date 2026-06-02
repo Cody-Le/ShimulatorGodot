@@ -82,7 +82,9 @@ namespace godot {
         bus_index = p_bus_index;
     }
 
-   PackedByteArray HDWISPIResource::get_group_type_representation() {
+    //from encoded group len to packet size is: 
+    //group_len * (bus_index (1) + group_size (1) + group_size * (device_name (32) + device_representation (8)))
+    PackedByteArray HDWISPIResource::get_group_type_representation() {
         PackedByteArray group_representation;
         //group spi over the same spi controller index to some like: spi controller index | len | device1_representation | device2_representation | ...
         std::unordered_map<uint8_t, std::vector<const HDWISPIResource*>> spi_groups;

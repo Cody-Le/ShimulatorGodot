@@ -129,11 +129,14 @@ void HDWIGPIOResource::handle_gpio_dir_in(sim_gpio_request_t request) {
     } else {
         // Handle error: offset out of range
     }
+
+
 }
 
 // Static member variable definition
 TypedArray<HDWIGPIOResource> *HDWIGPIOResource::gpio_resources = nullptr;
-
+// Encoded len to the representation size is: 
+// len * (base_size (32) + type (1) + ngpio (1))
 // Get all GPIO resources
 PackedByteArray HDWIGPIOResource::get_group_type_representation() {
     PackedByteArray group_representation;
@@ -144,6 +147,7 @@ PackedByteArray HDWIGPIOResource::get_group_type_representation() {
         const HDWIGPIOResource *gpio_resource = Object::cast_to<HDWIGPIOResource>(resource_variant);
         PackedByteArray device_representation = gpio_resource->get_device_representation();
         group_representation.append_array(device_representation);
+        
     }
     return group_representation;
 
