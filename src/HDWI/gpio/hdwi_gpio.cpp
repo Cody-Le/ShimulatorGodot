@@ -137,8 +137,9 @@ TypedArray<HDWIGPIOResource> *HDWIGPIOResource::gpio_resources = nullptr;
 // Get all GPIO resources
 PackedByteArray HDWIGPIOResource::get_group_type_representation() {
     PackedByteArray group_representation;
-    group_representation.resize(1); // Append group type to representation
+    group_representation.resize(2); // Append group type to representation
     group_representation.encode_u8(0, static_cast<uint8_t>(HDWIType::GPIO)); // Assuming 0 represents GPIO group type
+    group_representation.encode_u8(1, HDWIGPIOResource::gpio_resources->size()); // Append number of groups to representation
     for (const auto &resource_variant: *HDWIGPIOResource::gpio_resources) {
         const HDWIGPIOResource *gpio_resource = Object::cast_to<HDWIGPIOResource>(resource_variant);
         PackedByteArray device_representation = gpio_resource->get_device_representation();

@@ -41,10 +41,6 @@ namespace godot {
         
     }
 
-    void HDWISPIResource::on_send() {
-        emit_signal("send");
-    }
-
     void HDWISPIResource::set_max_speed_hz(uint32_t p_speed_hz) {
         max_speed_hz = p_speed_hz;
     }
@@ -94,11 +90,12 @@ namespace godot {
             const HDWISPIResource *spi_resource = Object::cast_to<HDWISPIResource>(resource_variant);
             spi_groups[spi_resource->get_bus_index()].push_back(spi_resource);
         }
-        group_representation.resize(1); // Append group type to representation
+        group_representation.resize(2); // Append group type to representation
         group_representation.encode_u8(0, static_cast<uint8_t>(HDWIType::SPI)); // Assuming 0 represents SPI group type
+        group_representation.encode_u8(1, spi_groups.size()); // Append number of groups to representation
 
-        uint8_t bytes_size = 1; 
-        uint8_t bytes_index = 1;
+        uint8_t bytes_size = group_representation.size(); 
+        uint8_t bytes_index = group_representation.size(); // Start appending group data after the initial group type and count
         for (const auto &[bus_index, resources] : spi_groups) {
             // Append bus index and number of devices in this group
             group_representation.resize(bytes_size + sizeof(uint8_t) * 2); // bus_index, device count
