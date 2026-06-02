@@ -2,7 +2,7 @@
 #define HDWI_SPI_H
 
 #include "../hdwi.h"
-#include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/typed_array.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <unordered_map>
 #include <vector>
@@ -21,21 +21,25 @@ namespace godot {
 
         protected:
             static void _bind_methods();
+            static TypedArray<HDWISPIResource> *spi_resources; // Static array to hold all SPI resources for group representation
+
         
         public:
 
-            static TypedArray<HDWISPIResource> spi_resources; // Static array to hold all SPI resources for group representation
 
             HDWISPIResource() = default;
 
             ~HDWISPIResource() = default;
 
-            void init(){
-                HDWISPIResource::spi_resources.append(this); // Add this instance to the static array of SPI resources
+            virtual void init() override {
+                if(spi_resources == nullptr) {
+                    spi_resources = new TypedArray<HDWISPIResource>();
+                }
+                HDWISPIResource::spi_resources->append(this); // Add this instance to the static array of SPI resources
             }
 
-            void clear() {
-                HDWISPIResource::spi_resources.erase(this); // Remove this instance from the static array of SPI resources
+            virtual void clear() override {
+                HDWISPIResource::spi_resources->erase(this); // Remove this instance from the static array of SPI resources
             }
 
             // Signals

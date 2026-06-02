@@ -2,17 +2,16 @@
 
 namespace godot {
 
-    TypedArray<HDWISPIResource> HDWISPIResource::spi_resources; // Static member variable definition
+    TypedArray<HDWISPIResource> *HDWISPIResource::spi_resources = nullptr; // Static member variable definition
 
     void HDWISPIResource::_bind_methods() {
         // Bind signals
-        ClassDB::bind_method(D_METHOD("on_send"), &HDWISPIResource::on_send);
-        ADD_SIGNAL(MethodInfo("send"));
+        HDWIResource::_bind_methods(); // Bind base class signals
 
         // Bind properties
         ClassDB::bind_method(D_METHOD("init"), &HDWISPIResource::init);
         ClassDB::bind_method(D_METHOD("clear"), &HDWISPIResource::clear);
-
+        
         ClassDB::bind_method(D_METHOD("set_max_speed_hz", "max_speed_hz"), &HDWISPIResource::set_max_speed_hz);
         ClassDB::bind_method(D_METHOD("get_max_speed_hz"), &HDWISPIResource::get_max_speed_hz);
         ADD_PROPERTY(PropertyInfo(Variant::INT, "max_speed_hz"), "set_max_speed_hz", "get_max_speed_hz");
@@ -35,10 +34,11 @@ namespace godot {
 
         // Bind methods
         ClassDB::bind_method(D_METHOD("dispatch_action", "request_data"), &HDWISPIResource::dispatch_action);
-        ClassDB::bind_static_method("get_group_type_representation", D_METHOD("get_group_type_representation"), &HDWISPIResource::get_group_type_representation);
+        ClassDB::bind_static_method("HDWISPIResource", D_METHOD("get_group_type_representation"), &HDWISPIResource::get_group_type_representation);
         ClassDB::bind_method(D_METHOD("get_device_representation"), &HDWISPIResource::get_device_representation);
         ClassDB::bind_method(D_METHOD("handle_spi_setup", "request_data"), &HDWISPIResource::handle_spi_setup);
         ClassDB::bind_method(D_METHOD("handle_spi_transfer", "request_data"), &HDWISPIResource::handle_spi_transfer);
+        
     }
 
     void HDWISPIResource::on_send() {
@@ -90,13 +90,15 @@ namespace godot {
         PackedByteArray group_representation;
         //group spi over the same spi controller index to some like: spi controller index | len | device1_representation | device2_representation | ...
         std::unordered_map<uint8_t, std::vector<const HDWISPIResource*>> spi_groups;
-        for (const godot::Variant &resource_variant: HDWISPIResource::spi_resources) {
+        for (const godot::Variant &resource_variant: *HDWISPIResource::spi_resources) {
             const HDWISPIResource *spi_resource = Object::cast_to<HDWISPIResource>(resource_variant);
             spi_groups[spi_resource->get_bus_index()].push_back(spi_resource);
         }
-        
-        uint8_t bytes_size = 0; 
-        uint8_t bytes_index = 0;
+        group_representation.resize(1); // Append group type to representation
+        group_representation.encode_u8(0, static_cast<uint8_t>(HDWIType::SPI)); // Assuming 0 represents SPI group type
+
+        uint8_t bytes_size = 1; 
+        uint8_t bytes_index = 1;
         for (const auto &[bus_index, resources] : spi_groups) {
             // Append bus index and number of devices in this group
             group_representation.resize(bytes_size + sizeof(uint8_t) * 2); // bus_index, device count

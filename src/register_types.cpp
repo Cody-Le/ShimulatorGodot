@@ -19,6 +19,7 @@ void initialize_module(ModuleInitializationLevel p_level) {
 	GDREGISTER_CLASS(PacketCPP);
     GDREGISTER_ABSTRACT_CLASS(HDWIResource);
     GDREGISTER_CLASS(HDWIGPIOResource);
+    GDREGISTER_CLASS(HDWISPIResource);
 
 }
 

@@ -30,6 +30,10 @@ namespace godot {
                 return type;
             };
 
+            virtual void init() = 0;
+            virtual void clear() = 0;
+
+
             // Get device representation as a packed byte array
             virtual PackedByteArray get_device_representation() const;
 

@@ -33,7 +33,8 @@ void PacketCPP::_bind_methods() {
     ClassDB::bind_integer_constant(get_class_static(), "CmdType", "CMD_ACTION", (int64_t)CmdType::CMD_ACTION);
 
     ClassDB::bind_integer_constant(get_class_static(), "HDWIType", "GPIO", (int64_t)HDWIType::GPIO);
-    
+    ClassDB::bind_integer_constant(get_class_static(), "HDWIType", "SPI", (int64_t)HDWIType::SPI);
+    ClassDB::bind_integer_constant(get_class_static(), "HDWIType", "UART", (int64_t)HDWIType::UART);
 
 }
 

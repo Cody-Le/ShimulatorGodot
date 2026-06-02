@@ -6,6 +6,9 @@ void HDWIResource::_bind_methods() {
     // Component - (HDWI) -> CommSeq
     ADD_SIGNAL(MethodInfo("on_send", PropertyInfo(Variant::OBJECT, "packet")));
     // Methods
+    ClassDB::bind_method(D_METHOD("init"), &HDWIResource::init);
+    ClassDB::bind_method(D_METHOD("clear"), &HDWIResource::clear);
+
     ClassDB::bind_method(D_METHOD("dispatch_action"), &HDWIResource::dispatch_action);
     // @Export variables bindings
     ClassDB::bind_method(D_METHOD("set_device_name", "device_name"), &HDWIResource::set_device_name);

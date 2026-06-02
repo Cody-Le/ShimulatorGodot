@@ -13,6 +13,7 @@ void HDWIGPIOResource::_bind_methods() {
     ClassDB::bind_method(D_METHOD("dispatch_action", "request_data"), &HDWIGPIOResource::dispatch_action);
     ClassDB::bind_method(D_METHOD("init"), &HDWIGPIOResource::init);
     ClassDB::bind_method(D_METHOD("clear"), &HDWIGPIOResource::clear);
+    ClassDB::bind_static_method("HDWIGPIOResource", D_METHOD("get_group_type_representation"), &HDWIGPIOResource::get_group_type_representation);
 
     ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "gpio_values"), "set_gpio_values", "get_gpio_values");
     // Signals
@@ -131,11 +132,20 @@ void HDWIGPIOResource::handle_gpio_dir_in(sim_gpio_request_t request) {
 }
 
 // Static member variable definition
-TypedArray<HDWIGPIOResource> HDWIGPIOResource::gpio_resources;
+TypedArray<HDWIGPIOResource> *HDWIGPIOResource::gpio_resources = nullptr;
 
 // Get all GPIO resources
-TypedArray<HDWIGPIOResource> HDWIGPIOResource::get_all_gpio_resources() {
-    return gpio_resources;
+PackedByteArray HDWIGPIOResource::get_group_type_representation() {
+    PackedByteArray group_representation;
+    group_representation.resize(1); // Append group type to representation
+    group_representation.encode_u8(0, static_cast<uint8_t>(HDWIType::GPIO)); // Assuming 0 represents GPIO group type
+    for (const auto &resource_variant: *HDWIGPIOResource::gpio_resources) {
+        const HDWIGPIOResource *gpio_resource = Object::cast_to<HDWIGPIOResource>(resource_variant);
+        PackedByteArray device_representation = gpio_resource->get_device_representation();
+        group_representation.append_array(device_representation);
+    }
+    return group_representation;
+
 }
 
 }
