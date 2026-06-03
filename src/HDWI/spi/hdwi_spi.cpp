@@ -123,11 +123,11 @@ namespace godot {
         uint64_t base_size = representation.size();
         // Append SPI-specific properties to the representation
         representation.resize(base_size + sizeof(uint8_t) * 4 + sizeof(uint32_t)); // bus_index, mode, bits_per_word, chip_select_line, speed_hz
-        representation.encode_u32(max_speed_hz, base_size);
-        representation.encode_u8(bus_index, base_size + 4);
-        representation.encode_u8(mode, base_size + 5);
-        representation.encode_u8(bits_per_word, base_size + 6);
-        representation.encode_u8(chip_select_line, base_size + 7);
+        representation.encode_u32(base_size, max_speed_hz);
+        representation.encode_u8(base_size + 4, bus_index);
+        representation.encode_u8(base_size + 5, mode);
+        representation.encode_u8(base_size + 6, bits_per_word);
+        representation.encode_u8(base_size + 7, chip_select_line);
         return representation;
     }
 
