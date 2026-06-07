@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="HDWIGPIOResource" inherits="HDWIResource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Virtual GPIO chip - a bank of digital lines the FSW can read, write, and set direction on.
+	</brief_description>
+	<description>
+		Models one GPIO chip ([code]gpiochip[/code]) exposed to the flight software. The chip has N lines; line state lives in [member gpio_values] (index = line offset). The FSW can drive a line ([code]GPIO_SET[/code]), read a line ([code]GPIO_GET[/code]), or change its direction ([code]GPIO_DIR_IN[/code] / [code]GPIO_DIR_OUT[/code]).
+		[b]How to interface[/b]
+		[olist]
+		[*]Set [member chip_index] (the natural id the kernel uses to route to this chip) and seed [member gpio_values] with the initial line levels - its size defines the line count.
+		[*]Call [method HDWIResource.init] to register the chip.
+		[*]Connect [signal on_gpio_line_change] to observe lines the FSW drives, and [signal HDWIResource.on_send] to forward read responses to the kernel socket.
+		[*]To present a sensor/input value to the FSW, write [member gpio_values]; the next [code]GPIO_GET[/code] returns the current level at that offset.
+		[/olist]
+		[b]Example[/b]
+		[codeblock]
+		var gpio = HDWIGPIOResource.new()
+		gpio.device_name = "gpiochip0"
+		gpio.chip_index = 0
+		gpio.gpio_values = PackedInt32Array([0, 0, 0, 0])  # 4 lines, all low
+		gpio.init()
+
+		gpio.on_gpio_line_change.connect(_on_line_change)
+		gpio.on_send.connect(_write_to_kernel_socket)
+
+		func _on_line_change(line_offset, new_value):
+		    print("FSW drove line %d to %d" % [line_offset, new_value])
+
+		# Present an external high signal on line 2 to the FSW:
+		var v = gpio.gpio_values
+		v[2] = 1
+		gpio.gpio_values = v   # also fires on_gpio_line_change for changed lines
+		[/codeblock]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_group_type_representation" qualifiers="static">
+			<return type="PackedByteArray" />
+			<description>
+				Builds the GPIO section of the [code]CMD_SYNCH[/code] registration body: [code][type][count][/code] followed by every registered chip's device representation. Called by the registry during sync.
+			</description>
+		</method>
+		<method name="lookup_gpio_device_id" qualifiers="static">
+			<return type="int" />
+			<param index="0" name="chip_index" type="int" />
+			<description>
+				Returns the 0-based slot of the chip with the given [member chip_index] in the internal registry, or [code]-1[/code] if no such chip is registered.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="chip_index" type="int" setter="set_chip_index" getter="get_chip_index" default="0">
+			Natural identifier of this chip on the wire (inner GPIO header [code]chip_index[/code]). The registry uses it to route incoming packets to this resource.
+		</member>
+		<member name="gpio_values" type="PackedInt32Array" setter="set_gpio_values" getter="get_gpio_values" default="PackedInt32Array()">
+			Per-line logic levels (0/1), indexed by line offset. The array size is the number of lines on the chip. Assigning a new array emits [signal on_gpio_line_change] for every line whose value changed.
+		</member>
+	</members>
+	<signals>
+		<signal name="on_gpio_line_change">
+			<param index="0" name="line_offset" type="int" />
+			<param index="1" name="new_value" type="int" />
+			<description>
+				Emitted when a line's level changes - either because the FSW issued [code]GPIO_SET[/code], or because GDScript reassigned [member gpio_values]. Use it to drive scene visuals or downstream logic.
+			</description>
+		</signal>
+	</signals>
+	<constants>
+	</constants>
+</class>

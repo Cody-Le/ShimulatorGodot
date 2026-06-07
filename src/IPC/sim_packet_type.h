@@ -12,7 +12,6 @@
 // MSVC doesn't support __attribute__((packed)); use pragma pack instead.
 #ifdef _MSC_VER
   #define SIM_PACKED
-  #pragma pack(push, 1)
 #else
   #define SIM_PACKED __attribute__((packed))
 #endif

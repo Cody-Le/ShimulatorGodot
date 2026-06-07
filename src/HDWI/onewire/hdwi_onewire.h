@@ -9,6 +9,23 @@
 
 namespace godot {
 
+    // HDWIOneWireResource — one 1-Wire sensor the FSW reads through sysfs
+    // (e.g. a DS18B20). Reads only; the resource is device-agnostic and ships
+    // read_buffer back verbatim.
+    //
+    // Interface:
+    //   1. set sensor_index (must match the kernel's position-assigned index;
+    //      get_group_type_representation() emits sensors in sensor_index order to
+    //      guarantee this) and device_name (the ROM id string)
+    //   2. init() to register the sensor
+    //   3. connect on_onewire_read; in the handler branch on the action and fill
+    //      read_buffer in the format the opened sysfs file expects:
+    //        ONEWIRE_READ_TEMPERATURE -> "temperature" (millidegrees ASCII)
+    //        ONEWIRE_READ_SLAVE       -> "w1_slave" (raw bytes + CRC/t= line)
+    //        ONEWIRE_READ_RAW         -> "rw" generic raw bytes
+    //   4. connect on_send (base) to ship the response to the socket
+    //
+    // Full reference: doc_classes/HDWIOneWireResource.xml
     class HDWIOneWireResource : public HDWIResource {
         GDCLASS(HDWIOneWireResource, HDWIResource)
         private:

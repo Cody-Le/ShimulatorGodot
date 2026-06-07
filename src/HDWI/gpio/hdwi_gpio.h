@@ -22,6 +22,18 @@ namespace godot {
     #pragma pack(pop)
 
 
+    // HDWIGPIOResource — one virtual GPIO chip (a bank of digital lines).
+    //
+    // Interface:
+    //   1. set chip_index (wire routing id) and seed gpio_values (size = #lines)
+    //   2. init() to register the chip
+    //   3. connect on_gpio_line_change to observe lines the FSW drives;
+    //      connect on_send (base) to ship GPIO_GET responses to the socket
+    //   4. to present an input level to the FSW, assign gpio_values; the next
+    //      GPIO_GET returns the current level at that offset
+    //
+    // Actions handled (see sim_packet_type.h): GPIO_GET / GPIO_SET /
+    // GPIO_DIR_IN / GPIO_DIR_OUT. Full reference: doc_classes/HDWIGPIOResource.xml
     class HDWIGPIOResource : public HDWIResource {
         GDCLASS(HDWIGPIOResource, HDWIResource)
         private:

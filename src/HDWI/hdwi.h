@@ -10,6 +10,23 @@
 
 namespace godot {
 
+    // HDWIResource — abstract base for every virtualized peripheral (GPIO, SPI,
+    // 1-Wire, ...). One instance == one device the unmodified FSW talks to.
+    //
+    // Flow: kernel driver forwards a hardware syscall over TCP -> device registry
+    // routes the inner payload to the matching resource's dispatch_action() ->
+    // the resource mutates state and/or emits a type-specific signal so GDScript
+    // can react -> any response is framed and emitted via on_send for the comm
+    // layer to write back to the socket.
+    //
+    // Subclass contract:
+    //   - init()  : register this instance in the subclass's static device table
+    //   - clear() : deregister it
+    //   - dispatch_action(payload) : decode action byte + data, run the handler
+    //   - get_device_representation() : append type-specific fields after the
+    //     base 32-byte device_name for the CMD_SYNCH registration body
+    //
+    // Per-type usage + examples: doc_classes/*.xml (visible in the Godot editor).
     class HDWIResource : public Resource {
         GDCLASS(HDWIResource, Resource)
         private:

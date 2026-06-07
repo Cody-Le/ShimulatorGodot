@@ -10,6 +10,23 @@
 
 namespace godot {
 
+    // HDWISPIResource — one SPI slave addressed by (bus_index, chip_select_line).
+    //
+    // SPI is full duplex: each transfer the FSW pushes N MOSI bytes and expects N
+    // MISO bytes back in the same exchange.
+    //
+    // Interface:
+    //   1. set bus_index, chip_select_line, mode, bits_per_word, max_speed_hz
+    //      (mode/bpw/speed get overwritten when the FSW issues a SPI_SETUP)
+    //   2. init() to register the device
+    //   3. connect on_spi_transfer; in the handler compute the MISO reply and call
+    //      set_miso_buffer() SYNCHRONOUSLY — the handler runs inline before the
+    //      response is framed, so deferring it desyncs the stream. Wrong-length
+    //      buffers are clamped/padded to the transfer size (default N zero bytes).
+    //   4. connect on_spi_setup (optional) to observe bus configuration;
+    //      connect on_send (base) to ship the MISO response to the socket
+    //
+    // Full reference: doc_classes/HDWISPIResource.xml
     class HDWISPIResource : public HDWIResource {
         GDCLASS(HDWISPIResource, HDWIResource)
         private:

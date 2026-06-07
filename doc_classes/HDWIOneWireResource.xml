@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="HDWIOneWireResource" inherits="HDWIResource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Virtual 1-Wire sensor exposed through the kernel's sysfs interface - e.g. a DS18B20 temperature sensor.
+	</brief_description>
+	<description>
+		Models one 1-Wire slave the FSW reads through sysfs. Reads are read-only and the resource is device-agnostic: when the FSW opens a sysfs attribute, this resource emits [signal on_onewire_read] with an action telling GDScript [i]which[/i] attribute was opened, GDScript fills [member read_buffer] with the bytes that file should contain, and the buffer is shipped back verbatim.
+		The three read actions correspond to the sysfs files:
+		[constant ONEWIRE_READ_TEMPERATURE] - the [code]temperature[/code] file (millidegrees as ASCII, e.g. [code]"21500\n"[/code] = 21.5 C).
+		[constant ONEWIRE_READ_SLAVE] - the [code]w1_slave[/code] file (raw scratchpad bytes plus a CRC line ending in [code]t=21500[/code]).
+		[constant ONEWIRE_READ_RAW] - the generic [code]rw[/code] raw byte channel.
+		[b]How to interface[/b]
+		[olist]
+		[*]Set [member sensor_index] - the kernel assigns indices by position in the sync body, so this must match that position (the registry emits sensors in [member sensor_index] order to keep them in sync). Set [member device_name] to the ROM id string.
+		[*]Call [method HDWIResource.init] to register the sensor.
+		[*]Connect [signal on_onewire_read]; in the handler, branch on the action and fill [member read_buffer] in the format that sysfs file expects.
+		[*]Connect [signal HDWIResource.on_send] to forward the response to the kernel socket.
+		[/olist]
+		[b]Example - a DS18B20 at 21.5 C[/b]
+		[codeblock]
+		var sensor = HDWIOneWireResource.new()
+		sensor.device_name = "28-00000a1b2c3d"
+		sensor.sensor_index = 0
+		sensor.init()
+
+		sensor.on_onewire_read.connect(_on_read)
+		sensor.on_send.connect(_write_to_kernel_socket)
+
+		func _on_read(sensor_index, action):
+		    match action:
+		        HDWIOneWireResource.ONEWIRE_READ_TEMPERATURE:
+		            sensor.read_buffer = "21500\n".to_utf8_buffer()
+		        HDWIOneWireResource.ONEWIRE_READ_SLAVE:
+		            sensor.read_buffer = "a1 01 4b 46 7f ff 0c 10 1c : crc=1c YES\na1 01 ... t=21500\n".to_utf8_buffer()
+		        _:
+		            sensor.read_buffer = PackedByteArray()
+		[/codeblock]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="handle_onewire_read">
+			<return type="void" />
+			<param index="0" name="action" type="int" />
+			<description>
+				Internal. Emits [signal on_onewire_read] (synchronous, so GDScript can fill [member read_buffer]), then frames the buffer and emits [signal HDWIResource.on_send]. Invoked by [method HDWIResource.dispatch_action] for any of the three read actions.
+			</description>
+		</method>
+		<method name="get_group_type_representation" qualifiers="static">
+			<return type="PackedByteArray" />
+			<description>
+				Builds the 1-Wire section of the [code]CMD_SYNCH[/code] registration body: [code][type][count][/code] followed by each sensor's 32-byte name, emitted in [member sensor_index] order so kernel-assigned indices line up.
+			</description>
+		</method>
+		<method name="lookup_onewire_device_id" qualifiers="static">
+			<return type="int" />
+			<param index="0" name="sensor_index" type="int" />
+			<description>
+				Returns the 0-based registry slot of the sensor with the given [member sensor_index], or [code]-1[/code] if none is registered.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="sensor_index" type="int" setter="set_sensor_index" getter="get_sensor_index" default="0">
+			Natural identifier on the wire (inner 1-Wire header [code]sensor_index[/code]). Must match the position the kernel assigns during sync; registration is emitted in this order to guarantee that.
+		</member>
+		<member name="read_buffer" type="PackedByteArray" setter="set_read_buffer" getter="get_read_buffer" default="PackedByteArray()">
+			Raw response bytes for the current read. Fill this inside the [signal on_onewire_read] handler in the format that matches the requested action. Shipped verbatim - no transformation is applied.
+		</member>
+	</members>
+	<signals>
+		<signal name="on_onewire_read">
+			<param index="0" name="sensor_index" type="int" />
+			<param index="1" name="action" type="int" />
+			<description>
+				Emitted when the FSW reads a sysfs attribute on this sensor. [param action] is one of [constant ONEWIRE_READ_TEMPERATURE], [constant ONEWIRE_READ_SLAVE], [constant ONEWIRE_READ_RAW]; fill [member read_buffer] accordingly before the handler returns.
+			</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="ONEWIRE_READ_TEMPERATURE" value="1">
+			The FSW opened the [code]temperature[/code] sysfs file; respond with millidegrees as ASCII (e.g. [code]"21500\n"[/code]).
+		</constant>
+		<constant name="ONEWIRE_READ_SLAVE" value="2">
+			The FSW opened the [code]w1_slave[/code] sysfs file; respond with the raw scratchpad bytes plus the CRC/[code]t=[/code] line.
+		</constant>
+		<constant name="ONEWIRE_READ_RAW" value="3">
+			The FSW opened the generic [code]rw[/code] raw channel; respond with raw bytes.
+		</constant>
+	</constants>
+</class>

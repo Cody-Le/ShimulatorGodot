@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="HDWIResource" inherits="Resource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Abstract base for every virtualized hardware device (GPIO, SPI, 1-Wire, ...).
+	</brief_description>
+	<description>
+		Base class of the Hardware Device Interface (HDWI) layer. One [HDWIResource] subclass instance represents one virtual peripheral that a real, unmodified flight-software binary talks to. The kernel driver inside the QEMU VM forwards each hardware syscall over TCP; the device registry routes the inner payload to the matching resource's [method dispatch_action], the resource mutates its state and/or emits a type-specific signal so GDScript can react, and any response is shipped back out through the [signal on_send] signal.
+		[b]You never instantiate this class directly[/b] - it is abstract. Use a concrete subclass: [HDWIGPIOResource], [HDWISPIResource], or [HDWIOneWireResource].
+		[b]Lifecycle common to every subclass[/b]
+		[codeblock]
+		# 1. Create and configure (set the @export properties).
+		var dev = HDWIGPIOResource.new()
+		dev.device_name = "gpiochip0"
+		# 2. Register it so the device registry can route packets to it.
+		dev.init()
+		# 3. React to inbound hardware activity via the subclass signals,
+		#    and forward outbound bytes to the kernel socket.
+		dev.on_send.connect(_write_to_kernel_socket)
+		# 4. Deregister when tearing the device down.
+		dev.clear()
+		[/codeblock]
+		[b]Wire protocol[/b] - the outbound bytes emitted by [signal on_send] are a fully framed [code]simcall_header_t[/code] (24 bytes, little-endian, version 4) followed by the payload. The registry strips the inner per-type identifier before calling [method dispatch_action], so handlers only see the action byte plus action data.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="init">
+			<return type="void" />
+			<description>
+				Registers this resource with its subclass's static device table so the registry can route packets to it. Call once, after setting the identity properties (e.g. [member HDWIGPIOResource.chip_index]). [b]Override is implemented per subclass.[/b]
+			</description>
+		</method>
+		<method name="clear">
+			<return type="void" />
+			<description>
+				Removes this resource from its subclass's static device table. Call when destroying the device.
+			</description>
+		</method>
+		<method name="dispatch_action">
+			<return type="void" />
+			<param index="0" name="request_data" type="PackedByteArray" />
+			<description>
+				Entry point the device registry calls with the inner peripheral payload (the outer [code]simcall_header_t[/code] and per-type identifier already stripped). The first byte is the action id; the rest is action data. Each subclass decodes it and runs the matching handler. You normally do not call this yourself - connect to the subclass signals instead.
+			</description>
+		</method>
+		<method name="get_device_representation" qualifiers="const">
+			<return type="PackedByteArray" />
+			<description>
+				Serializes this device for the [code]CMD_SYNCH[/code] registration body. The base implementation emits the 32-byte null-padded [member device_name]; subclasses append their own fields. Used internally during device registration.
+			</description>
+		</method>
+		<method name="get_sim_time_ns" qualifiers="static">
+			<return type="int" />
+			<description>
+				Returns the most recent simulation timestamp (nanoseconds) seeded from an inbound kernel packet. Stamped into every outbound response's [code]time_ns[/code] header field.
+			</description>
+		</method>
+		<method name="set_sim_time_ns" qualifiers="static">
+			<return type="void" />
+			<param index="0" name="t" type="int" />
+			<description>
+				Seeds the shared simulation clock. GDScript should call this on every received packet with that packet's [code]time_ns[/code] so outbound responses carry a coherent timestamp.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="device_name" type="String" setter="set_device_name" getter="get_device_name" default="&quot;&quot;">
+			Human-readable identity, truncated/padded to 32 bytes in the registration body. For GPIO this maps to the chip label; for 1-Wire it is the sensor's ROM id string.
+		</member>
+	</members>
+	<signals>
+		<signal name="on_send">
+			<param index="0" name="packet" type="PackedByteArray" />
+			<description>
+				Emitted when the resource has a fully framed response packet ready. Connect this to whatever writes to the kernel TCP socket. The bytes are header + payload, ready to send verbatim.
+			</description>
+		</signal>
+	</signals>
+	<constants>
+	</constants>
+</class>

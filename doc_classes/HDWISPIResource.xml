@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="HDWISPIResource" inherits="HDWIResource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Virtual SPI peripheral on a (bus, chip-select) - models a full-duplex MOSI/MISO device such as an MS5803 pressure sensor.
+	</brief_description>
+	<description>
+		Represents one SPI slave addressed by ([member bus_index], [member chip_select_line]). SPI is full duplex: every transfer the FSW pushes N MOSI bytes and expects N MISO bytes back in the same exchange. This resource hands the MOSI bytes to GDScript via [signal on_spi_transfer] and ships back whatever GDScript leaves in [member miso_buffer].
+		[b]How to interface[/b]
+		[olist]
+		[*]Set the addressing/config properties: [member bus_index], [member chip_select_line], [member mode], [member bits_per_word], [member max_speed_hz]. (When the FSW configures the bus these get overwritten from the [signal on_spi_setup] data.)
+		[*]Call [method HDWIResource.init] to register the device.
+		[*]Connect [signal on_spi_transfer]. In the handler, compute the device's MISO response and call [method set_miso_buffer] [b]synchronously[/b] - the handler runs inline before the response is framed and sent, so the stream desyncs if you defer it.
+		[*]Connect [signal HDWIResource.on_send] to forward the framed MISO response to the kernel socket.
+		[/olist]
+		[b]Example - an MS5803 returning its response to each command[/b]
+		[codeblock]
+		var spi = HDWISPIResource.new()
+		spi.device_name = "ms5803"
+		spi.bus_index = 0
+		spi.chip_select_line = 0
+		spi.mode = 0
+		spi.bits_per_word = 8
+		spi.max_speed_hz = 1_000_000
+		spi.init()
+
+		spi.on_spi_setup.connect(_on_setup)
+		spi.on_spi_transfer.connect(_on_transfer)
+		spi.on_send.connect(_write_to_kernel_socket)
+
+		func _on_setup(mode, bits_per_word, speed_hz):
+		    print("FSW configured SPI: mode=%d bpw=%d speed=%d" % [mode, bits_per_word, speed_hz])
+
+		func _on_transfer(tx_data):
+		    # tx_data = MOSI bytes from the FSW. Build N MISO bytes in reply.
+		    var miso = PackedByteArray()
+		    miso.resize(tx_data.size())
+		    miso[0] = 0x00                # device-specific response to tx_data
+		    spi.set_miso_buffer(miso)    # MUST be set before this handler returns
+		[/codeblock]
+		If you set a MISO buffer of the wrong length it is clamped/padded to the transfer size; the default is N zero bytes.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="handle_spi_setup">
+			<return type="void" />
+			<param index="0" name="request_data" type="PackedByteArray" />
+			<description>
+				Internal. Decodes an 8-byte SPI setup payload (mode, bits-per-word, speed) into the matching properties and emits [signal on_spi_setup]. Invoked by [method HDWIResource.dispatch_action] on a [code]SPI_SETUP[/code] action.
+			</description>
+		</method>
+		<method name="handle_spi_transfer">
+			<return type="void" />
+			<param index="0" name="request_data" type="PackedByteArray" />
+			<description>
+				Internal. Takes N raw MOSI bytes, emits [signal on_spi_transfer] (synchronous, so GDScript can fill [member miso_buffer]), then frames the MISO buffer and emits [signal HDWIResource.on_send]. Invoked on a [code]SPI_TRANSFER[/code] action.
+			</description>
+		</method>
+		<method name="get_group_type_representation" qualifiers="static">
+			<return type="PackedByteArray" />
+			<description>
+				Builds the SPI section of the [code]CMD_SYNCH[/code] registration body, grouping registered devices by [member bus_index]. Called by the registry during sync.
+			</description>
+		</method>
+		<method name="lookup_spi_device_id" qualifiers="static">
+			<return type="int" />
+			<param index="0" name="bus_index" type="int" />
+			<param index="1" name="chip_select" type="int" />
+			<description>
+				Returns the 0-based registry slot of the device at ([param bus_index], [param chip_select]), or [code]-1[/code] if none is registered.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="bus_index" type="int" setter="set_bus_index" getter="get_bus_index" default="0">
+			SPI bus number this device lives on (inner SPI header [code]bus_index[/code]). Part of the routing key.
+		</member>
+		<member name="chip_select_line" type="int" setter="set_chip_select_line" getter="get_chip_select_line" default="0">
+			Chip-select line that selects this slave on its bus (inner SPI header [code]chip_select[/code]). Together with [member bus_index] it uniquely identifies the device.
+		</member>
+		<member name="mode" type="int" setter="set_mode" getter="get_mode" default="0">
+			SPI mode 0-3 (CPOL/CPHA). Overwritten when the FSW issues a setup.
+		</member>
+		<member name="bits_per_word" type="int" setter="set_bits_per_word" getter="get_bits_per_word" default="0">
+			Bits per SPI word (typically 8). Overwritten when the FSW issues a setup.
+		</member>
+		<member name="max_speed_hz" type="int" setter="set_max_speed_hz" getter="get_max_speed_hz" default="0">
+			Maximum clock frequency in Hz. Informational on the sim side; overwritten on setup.
+		</member>
+		<member name="miso_buffer" type="PackedByteArray" setter="set_miso_buffer" getter="get_miso_buffer" default="PackedByteArray()">
+			The MISO bytes returned for the current transfer. Fill this inside the [signal on_spi_transfer] handler. Length must equal the transfer's MOSI length (it is clamped/padded otherwise).
+		</member>
+	</members>
+	<signals>
+		<signal name="on_spi_setup">
+			<param index="0" name="mode" type="int" />
+			<param index="1" name="bits_per_word" type="int" />
+			<param index="2" name="speed_hz" type="int" />
+			<description>
+				Emitted when the FSW configures the bus. The properties [member mode], [member bits_per_word], [member max_speed_hz] are already updated to these values.
+			</description>
+		</signal>
+		<signal name="on_spi_transfer">
+			<param index="0" name="tx_data" type="PackedByteArray" />
+			<description>
+				Emitted on each full-duplex transfer with the FSW's MOSI bytes. Fill [member miso_buffer] (via [method set_miso_buffer]) with the same number of bytes before the handler returns - the response is framed and sent the instant this signal returns.
+			</description>
+		</signal>
+	</signals>
+	<constants>
+	</constants>
+</class>

@@ -16,6 +16,19 @@ env = SConscript("godot-cpp/SConstruct")
 env.Append(CPPPATH=["src/"])
 sources = Glob("src/*.cpp") + Glob("src/**/*.cpp") + Glob("src/**/**/*.cpp")
 
+# Exclude the generated doc source from the globbed sources; it is added
+# explicitly below (and only for editor/debug targets). Without this the
+# recursive glob also matches src/gen/doc_data.gen.cpp once it exists on disk,
+# and the file gets linked twice (LNK4042).
+sources = [s for s in sources if "/gen/" not in str(s).replace("\\", "/")]
+
+# Compile the class-reference XML in doc_classes/ into the library so the
+# descriptions show up in the Godot editor (Ctrl+click a class / F1 Help).
+# Only editor + debug template builds carry docs.
+if env["target"] in ["editor", "template_debug"]:
+    doc_data = env.GodotCPPDocData("src/gen/doc_data.gen.cpp", source=Glob("doc_classes/*.xml"))
+    sources.append(doc_data)
+
 if env["platform"] == "macos":
     library = env.SharedLibrary(
         "godot-fsw-tcp/bin/libsim.{}.{}.framework/libsim.{}.{}".format(

@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="PacketCPP" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Encodes and decodes the simcall wire frame exchanged with the kernel driver over TCP.
+	</brief_description>
+	<description>
+		Wraps one [code]simcall_header_t[/code] (24 bytes, little-endian / native byte order, version 4) plus its variable-length data payload. Every message between the Godot host and the in-VM kernel driver is a [PacketCPP]: the header carries the command, the peripheral type, the simulation timestamp, and the payload length; the payload carries either a [code]CMD_SYNCH[/code] device-registration body or a [code]CMD_ACTION[/code] dev_id + action payload.
+		The HDWI resources build outbound packets internally and emit the raw bytes through [signal HDWIResource.on_send], so most GDScript only [i]decodes[/i] inbound frames with this class.
+		[b]Decode an inbound header[/b]
+		[codeblock]
+		var pkt = PacketCPP.new()
+		pkt.generate_from_bytes(first_24_bytes)   # read PacketCPP.get_header_len() bytes first
+		if not pkt.get_validity():
+		    push_error("bad header (wrong version or size)")
+		    return
+		HDWIResource.set_sim_time_ns(pkt.get_time_ns())   # keep the sim clock seeded
+		var payload_len = pkt.get_data_len()              # now read this many more bytes
+		[/codeblock]
+		[b]Build an outbound packet[/b]
+		[codeblock]
+		var pkt = PacketCPP.new()
+		pkt.generate(PacketCPP.CMD_ACTION, PacketCPP.SPI, HDWIResource.get_sim_time_ns(), payload)
+		socket.put_data(pkt.convert_to_bytes())
+		[/codeblock]
+		[b]Debugging[/b] - set [member robust] (or call [method to_string_robust]) to get a sectioned, byte-offset-labeled dump that decodes the header and interprets the data section by command type.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="generate">
+			<return type="void" />
+			<param index="0" name="cmd_type" type="int" enum="CmdType" />
+			<param index="1" name="hdwi_type" type="int" enum="HDWIType" />
+			<param index="2" name="time_ns" type="int" />
+			<param index="3" name="bytes" type="PackedByteArray" />
+			<description>
+				Fills the header (version 4, [param cmd_type], [param hdwi_type], [param time_ns]) and adopts [param bytes] as the payload, setting [code]data_len[/code] to its size. Pair with [method convert_to_bytes] to get the frame to send.
+			</description>
+		</method>
+		<method name="generate_from_bytes">
+			<return type="void" />
+			<param index="0" name="header_bytes" type="PackedByteArray" />
+			<description>
+				Parses exactly [method get_header_len] bytes into the header. Marks the packet valid only when the version matches 4 and the input length equals the header size; check [method get_validity] afterwards.
+			</description>
+		</method>
+		<method name="convert_to_bytes">
+			<return type="PackedByteArray" />
+			<description>
+				Serializes header + payload into a single contiguous byte buffer ready to write to the socket.
+			</description>
+		</method>
+		<method name="get_validity">
+			<return type="bool" />
+			<description>
+				Whether the last [method generate_from_bytes] produced a well-formed header (correct version and length).
+			</description>
+		</method>
+		<method name="get_cmd_id">
+			<return type="int" />
+			<description>
+				The command id from the header ([code]CMD_SYNCH[/code] = 1, [code]CMD_ACTION[/code] = 2). See the [enum CmdType] constants.
+			</description>
+		</method>
+		<method name="get_type">
+			<return type="int" />
+			<description>
+				The peripheral type from the header. See the [enum HDWIType] constants.
+			</description>
+		</method>
+		<method name="get_time_ns">
+			<return type="int" />
+			<description>
+				The simulation timestamp (nanoseconds) carried in the header.
+			</description>
+		</method>
+		<method name="get_data_len">
+			<return type="int" />
+			<description>
+				Length in bytes of the payload that follows the header. After decoding a header, read this many more bytes from the stream to get the body.
+			</description>
+		</method>
+		<method name="get_header_len" qualifiers="static">
+			<return type="int" />
+			<description>
+				Size of [code]simcall_header_t[/code] in bytes (24). Use this as the fixed-size prefix to read before the variable-length payload.
+			</description>
+		</method>
+		<method name="set_data">
+			<return type="void" />
+			<param index="0" name="data" type="PackedByteArray" />
+			<description>
+				Replaces the payload and updates the header's [code]data_len[/code] to match.
+			</description>
+		</method>
+		<method name="get_data" qualifiers="const">
+			<return type="PackedByteArray" />
+			<description>
+				Returns the current payload bytes (excluding the header).
+			</description>
+		</method>
+		<method name="to_string_robust" qualifiers="const">
+			<return type="String" />
+			<description>
+				Returns the sectioned, byte-offset-labeled debug dump regardless of the [member robust] flag. Decodes the header and interprets the data section: [code]CMD_SYNCH[/code] as group registration, [code]CMD_ACTION[/code] as dev_id + payload.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="robust" type="bool" setter="set_robust" getter="get_robust" default="false">
+			When [code]true[/code], converting the packet to a string (e.g. [code]print(pkt)[/code]) emits the verbose [method to_string_robust] dump instead of the compact one-line form.
+		</member>
+	</members>
+	<constants>
+		<constant name="CMD_SYNCH" value="1" enum="CmdType">
+			Time-seeding / device-registration command. Its payload is the concatenated group bodies; no per-device handshake (D050).
+		</constant>
+		<constant name="CMD_ACTION" value="2" enum="CmdType">
+			Peripheral I/O command. Its payload is a type-sized dev_id followed by the action payload.
+		</constant>
+		<constant name="GPIO" value="0" enum="HDWIType">
+			GPIO peripheral type.
+		</constant>
+		<constant name="UART" value="1" enum="HDWIType">
+			UART peripheral type.
+		</constant>
+		<constant name="I2C" value="2" enum="HDWIType">
+			I2C peripheral type (deferred - not in the current scope).
+		</constant>
+		<constant name="SPI" value="3" enum="HDWIType">
+			SPI peripheral type.
+		</constant>
+		<constant name="ONEWIRE" value="4" enum="HDWIType">
+			1-Wire peripheral type.
+		</constant>
+		<constant name="V4L2" value="5" enum="HDWIType">
+			V4L2 (USB camera) peripheral type.
+		</constant>
+	</constants>
+</class>
