@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="HDWIUARTResource" inherits="HDWIResource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Virtual UART port the FSW talks to as [code]/dev/ttySIM&lt;port_index&gt;[/code] - e.g. the HASP gondola downlink/uplink link.
+	</brief_description>
+	<description>
+		Models one serial port as a byte pipe with two independent directions; this resource is the device on the far end of the wire. The simulation drains the bytes the FSW transmits and produces the bytes the FSW receives.
+		The two actions are deliberately asymmetric, and that asymmetry is what keeps the kernel's stream framed:
+		[constant UART_WRITE] - FSW [i]to[/i] sim. A pure sink: the payload is appended to [member from_fsw] and [signal on_uart_write] is emitted. This resource [b]never[/b] replies to a write - a response here desyncs the kernel's read loop.
+		[constant UART_READ] - sim [i]to[/i] FSW. A request/response polled roughly every 10 ms per port. This resource [b]always[/b] replies, even with zero bytes: it drains up to [constant UART_READ_MAX_CHUNK] bytes off the front of [member to_fsw] and ships them. The response carries no dev_id (the kernel knows which port it polled); anything not drained stays queued for the next poll.
+		Line config (baud, parity, stop bits) is [i]not[/i] on the wire - the kernel applies termios locally and never forwards it. Model timing engine-side if you need it; HASP is a fixed 4800 8N1 link, so a hard-coded model suffices.
+		[b]How to interface[/b]
+		[olist]
+		[*]Set [member port_index] - the kernel assigns indices by position in the sync body, so this must match that position (the registry emits ports in [member port_index] order to keep them in sync) and is also the [code]ttySIM[/code] minor. Set [member device_name].
+		[*]Call [method HDWIResource.init] to register the port.
+		[*]Connect [signal on_uart_write] to consume bytes the FSW sends; produce bytes for the FSW by appending to [member to_fsw] via [method queue_to_fsw] (the next [constant UART_READ] delivers them).
+		[*]Connect [signal HDWIResource.on_send] to forward [constant UART_READ] responses to the kernel socket.
+		[/olist]
+		[b]Example - an echo port[/b]
+		[codeblock]
+		var uart = HDWIUARTResource.new()
+		uart.device_name = "hasp0"
+		uart.port_index = 0
+		uart.init()
+
+		uart.on_uart_write.connect(_on_write)
+		uart.on_send.connect(_write_to_kernel_socket)
+
+		func _on_write(port_index, data):
+		    # Echo whatever the FSW transmitted straight back to it.
+		    uart.queue_to_fsw(data)
+		[/codeblock]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="queue_to_fsw">
+			<return type="void" />
+			<param index="0" name="bytes" type="PackedByteArray" />
+			<description>
+				Appends [param bytes] to [member to_fsw] for the FSW to receive on its next read. Convenience wrapper around assigning [member to_fsw].
+			</description>
+		</method>
+		<method name="handle_uart_write">
+			<return type="void" />
+			<param index="0" name="payload" type="PackedByteArray" />
+			<description>
+				Internal. Appends [param payload] to [member from_fsw] and emits [signal on_uart_write]. Sends no response. Invoked by [method HDWIResource.dispatch_action] for [constant UART_WRITE].
+			</description>
+		</method>
+		<method name="handle_uart_read">
+			<return type="void" />
+			<description>
+				Internal. Emits [signal on_uart_read] (synchronous, so GDScript can top up [member to_fsw]), drains up to [constant UART_READ_MAX_CHUNK] bytes off the front of [member to_fsw], frames them, and emits [signal HDWIResource.on_send] - always, even if zero bytes are available. Invoked by [method HDWIResource.dispatch_action] for [constant UART_READ].
+			</description>
+		</method>
+		<method name="get_group_type_representation" qualifiers="static">
+			<return type="PackedByteArray" />
+			<description>
+				Builds the UART section of the [code]CMD_SYNCH[/code] registration body: [code][type][count][/code] followed by each port's 32-byte name, emitted in [member port_index] order so kernel-assigned indices line up. UART carries no extra per-port fields.
+			</description>
+		</method>
+		<method name="lookup_uart_device_id" qualifiers="static">
+			<return type="int" />
+			<param index="0" name="port_index" type="int" />
+			<description>
+				Returns the 0-based registry slot of the port with the given [member port_index], or [code]-1[/code] if none is registered.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="port_index" type="int" setter="set_port_index" getter="get_port_index" default="0">
+			Natural identifier on the wire (inner UART header [code]port_index[/code]) and the [code]/dev/ttySIM&lt;port_index&gt;[/code] minor. Must match the position the kernel assigns during sync; registration is emitted in this order to guarantee that.
+		</member>
+		<member name="from_fsw" type="PackedByteArray" setter="set_from_fsw" getter="get_from_fsw" default="PackedByteArray()">
+			Bytes the FSW has written to this port ([constant UART_WRITE]), accumulated in order. The simulation consumes these; clear by assigning an empty array. Each write also arrives live via [signal on_uart_write].
+		</member>
+		<member name="to_fsw" type="PackedByteArray" setter="set_to_fsw" getter="get_to_fsw" default="PackedByteArray()">
+			Bytes queued for the FSW to receive ([constant UART_READ]). Fill via [method queue_to_fsw] or by assigning directly; each read drains up to [constant UART_READ_MAX_CHUNK] bytes off the front.
+		</member>
+	</members>
+	<signals>
+		<signal name="on_uart_write">
+			<param index="0" name="port_index" type="int" />
+			<param index="1" name="data" type="PackedByteArray" />
+			<description>
+				Emitted when the FSW writes [param data] to this port. One FSW [code]write()[/code] may arrive as several chunks (the kernel caps each at 256 bytes on a ring-wrap boundary); concatenate in order. No response is sent for a write.
+			</description>
+		</signal>
+		<signal name="on_uart_read">
+			<param index="0" name="port_index" type="int" />
+			<description>
+				Emitted on every [constant UART_READ] poll, before [member to_fsw] is drained, giving GDScript a last chance to top it up synchronously. A reply is always sent afterward, even if no bytes are available.
+			</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="UART_READ_MAX_CHUNK" value="4096">
+			Largest chunk a single [constant UART_READ] reply will drain off [member to_fsw]. Bounds one poll; the remainder stays queued for the next.
+		</constant>
+	</constants>
+</class>
