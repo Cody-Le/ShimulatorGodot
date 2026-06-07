@@ -2,12 +2,16 @@
 
 namespace godot {
 
+uint64_t HDWIResource::sim_time_ns = 0;
+
 void HDWIResource::_bind_methods() {
     // Component - (HDWI) -> CommSeq
     ADD_SIGNAL(MethodInfo("on_send", PropertyInfo(Variant::OBJECT, "packet")));
     // Methods
     ClassDB::bind_method(D_METHOD("init"), &HDWIResource::init);
     ClassDB::bind_method(D_METHOD("clear"), &HDWIResource::clear);
+    ClassDB::bind_static_method("HDWIResource", D_METHOD("set_sim_time_ns", "t"), &HDWIResource::set_sim_time_ns);
+    ClassDB::bind_static_method("HDWIResource", D_METHOD("get_sim_time_ns"), &HDWIResource::get_sim_time_ns);
 
     ClassDB::bind_method(D_METHOD("dispatch_action"), &HDWIResource::dispatch_action);
     // @Export variables bindings

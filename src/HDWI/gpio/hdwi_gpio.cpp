@@ -103,7 +103,7 @@ void HDWIGPIOResource::handle_gpio_get(GpioRequest request) {
         memcpy(response_data.ptrw(), &response, sizeof(GpioResponse));
         UtilityFunctions::print("Prepared response data with value: " + String::num_int64(response.value));
         PacketCPP *packet = memnew(PacketCPP);
-        packet->generate(CmdType::ACTION, type, 0, response_data);
+        packet->generate(CmdType::ACTION, type, sim_time_ns, response_data);
         UtilityFunctions::print("Emitting on_send signal with response data size: " + String::num_int64(response_data.size()));
         emit_signal("on_send", packet->convert_to_bytes());
         memdelete(packet);

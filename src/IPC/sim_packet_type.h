@@ -9,6 +9,14 @@
 #include <stdint.h>
 #endif
 
+// MSVC doesn't support __attribute__((packed)); use pragma pack instead.
+#ifdef _MSC_VER
+  #define SIM_PACKED
+  #pragma pack(push, 1)
+#else
+  #define SIM_PACKED __attribute__((packed))
+#endif
+
 typedef uint8_t cmd_id_t;
 typedef uint8_t action_id_t;
 
@@ -32,7 +40,7 @@ typedef uint8_t hdwi_type_t;
 #define HDWI_TYPE_V4L2    ((hdwi_type_t)0x05)
 
 // Wire format: simcall_header_t | dev_id | data
-// 24 bytes, NOT packed (natural alignment + 4-byte trailing pad), version = 4
+// 24 bytes, NOT packed (natural alignment), version = 4
 typedef struct {
     uint16_t    version;
     cmd_id_t    cmd_id;
@@ -40,17 +48,7 @@ typedef struct {
     uint8_t     reserved[4];
     uint64_t    time_ns;       // offset 8
     uint32_t    data_len;      // covers data only, not dev_id
-    uint8_t     _pad[4];       // explicit trailing pad — keeps struct 24 bytes under pack(1) on MSVC
 } simcall_header_t;
-
-// MSVC doesn't support __attribute__((packed)); use pragma pack instead.
-// Only the per-type dev_id structs below are packed — simcall_header_t is NOT.
-#ifdef _MSC_VER
-  #define SIM_PACKED
-  #pragma pack(push, 1)
-#else
-  #define SIM_PACKED __attribute__((packed))
-#endif
 
 // ── GPIO ─────────────────────────────────────────────────────────────────────
 typedef uint8_t gpio_action_t;
@@ -92,7 +90,10 @@ typedef struct SIM_PACKED {
 // ── 1-Wire ───────────────────────────────────────────────────────────────────
 typedef uint8_t onewire_action_t;
 
-#define ONEWIRE_READ ((onewire_action_t)0x01)
+// which sysfs attribute the FSW read; the engine returns the matching format
+#define ONEWIRE_READ_TEMPERATURE ((onewire_action_t)0x01)  // "temperature" file (millidegrees ASCII)
+#define ONEWIRE_READ_SLAVE       ((onewire_action_t)0x02)  // "w1_slave" file (raw bytes + CRC line)
+#define ONEWIRE_READ_RAW         ((onewire_action_t)0x03)  // "rw" generic raw byte channel
 
 typedef struct SIM_PACKED {
     uint8_t          sensor_index;

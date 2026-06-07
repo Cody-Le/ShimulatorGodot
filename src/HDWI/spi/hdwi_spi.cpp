@@ -212,7 +212,7 @@ namespace godot {
         }
 
         PacketCPP *packet = memnew(PacketCPP);
-        packet->generate(CmdType::ACTION, HDWIType::SPI, 0, miso_buffer);
+        packet->generate(CmdType::ACTION, HDWIType::SPI, sim_time_ns, miso_buffer);
         emit_signal("on_send", packet->convert_to_bytes());
         memdelete(packet);
     }
