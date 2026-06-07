@@ -2,13 +2,26 @@
 
 namespace godot {
 
-    TypedArray<HDWISPIResource> *HDWISPIResource::spi_resources = nullptr; // Static member variable definition
+    TypedArray<HDWISPIResource> *HDWISPIResource::spi_resources = nullptr;
+    std::unordered_map<uint16_t, int> HDWISPIResource::bus_cs_to_device_id;
+
+    int HDWISPIResource::spi_dev_id_to_device_id(spi_dev_id_t id) {
+        uint16_t key = (static_cast<uint16_t>(id.bus_index) << 8) | id.chip_select;
+        auto it = bus_cs_to_device_id.find(key);
+        if (it == bus_cs_to_device_id.end()) return -1;
+        return it->second;
+    }
+
+    int HDWISPIResource::lookup_spi_device_id(int p_bus_index, int p_chip_select) {
+        uint16_t key = (static_cast<uint16_t>(p_bus_index) << 8) | static_cast<uint8_t>(p_chip_select);
+        auto it = bus_cs_to_device_id.find(key);
+        if (it == bus_cs_to_device_id.end()) return -1;
+        return it->second;
+    }
 
     void HDWISPIResource::_bind_methods() {
-        // Bind signals
-        HDWIResource::_bind_methods(); // Bind base class signals
+        HDWIResource::_bind_methods();
 
-        // Bind properties
         ClassDB::bind_method(D_METHOD("init"), &HDWISPIResource::init);
         ClassDB::bind_method(D_METHOD("clear"), &HDWISPIResource::clear);
         
@@ -35,10 +48,21 @@ namespace godot {
         // Bind methods
         ClassDB::bind_method(D_METHOD("dispatch_action", "request_data"), &HDWISPIResource::dispatch_action);
         ClassDB::bind_static_method("HDWISPIResource", D_METHOD("get_group_type_representation"), &HDWISPIResource::get_group_type_representation);
+        ClassDB::bind_static_method("HDWISPIResource", D_METHOD("lookup_spi_device_id", "bus_index", "chip_select"), &HDWISPIResource::lookup_spi_device_id);
         ClassDB::bind_method(D_METHOD("get_device_representation"), &HDWISPIResource::get_device_representation);
+        ClassDB::bind_method(D_METHOD("set_miso_buffer", "miso"), &HDWISPIResource::set_miso_buffer);
+        ClassDB::bind_method(D_METHOD("get_miso_buffer"), &HDWISPIResource::get_miso_buffer);
+        ADD_PROPERTY(PropertyInfo(Variant::PACKED_BYTE_ARRAY, "miso_buffer"), "set_miso_buffer", "get_miso_buffer");
+
         ClassDB::bind_method(D_METHOD("handle_spi_setup", "request_data"), &HDWISPIResource::handle_spi_setup);
         ClassDB::bind_method(D_METHOD("handle_spi_transfer", "request_data"), &HDWISPIResource::handle_spi_transfer);
-        
+
+        ADD_SIGNAL(MethodInfo("on_spi_setup",
+            PropertyInfo(Variant::INT, "mode"),
+            PropertyInfo(Variant::INT, "bits_per_word"),
+            PropertyInfo(Variant::INT, "speed_hz")));
+        ADD_SIGNAL(MethodInfo("on_spi_transfer",
+            PropertyInfo(Variant::PACKED_BYTE_ARRAY, "tx_data")));
     }
 
     void HDWISPIResource::set_max_speed_hz(uint32_t p_speed_hz) {
@@ -82,35 +106,31 @@ namespace godot {
         bus_index = p_bus_index;
     }
 
-    //from encoded group len to packet size is: 
-    //group_len * (bus_index (1) + group_size (1) + group_size * (device_name (32) + device_representation (8)))
     PackedByteArray HDWISPIResource::get_group_type_representation() {
         PackedByteArray group_representation;
-        //group spi over the same spi controller index to some like: spi controller index | len | device1_representation | device2_representation | ...
+        group_representation.resize(2);
+        group_representation.encode_u8(0, static_cast<uint8_t>(HDWIType::SPI));
+
+        if (spi_resources == nullptr) {
+            group_representation.encode_u8(1, 0);
+            return group_representation;
+        }
+
         std::unordered_map<uint8_t, std::vector<const HDWISPIResource*>> spi_groups;
-        for (const godot::Variant &resource_variant: *HDWISPIResource::spi_resources) {
+        for (const godot::Variant &resource_variant : *HDWISPIResource::spi_resources) {
             const HDWISPIResource *spi_resource = Object::cast_to<HDWISPIResource>(resource_variant);
             spi_groups[spi_resource->get_bus_index()].push_back(spi_resource);
         }
-        group_representation.resize(2); // Append group type to representation
-        group_representation.encode_u8(0, static_cast<uint8_t>(HDWIType::SPI)); // Assuming 0 represents SPI group type
-        group_representation.encode_u8(1, spi_groups.size()); // Append number of groups to representation
 
-        uint8_t bytes_size = group_representation.size(); 
-        uint8_t bytes_index = group_representation.size(); // Start appending group data after the initial group type and count
-        for (const auto &[bus_index, resources] : spi_groups) {
-            // Append bus index and number of devices in this group
-            group_representation.resize(bytes_size + sizeof(uint8_t) * 2); // bus_index, device count
-            bytes_size += sizeof(uint8_t) * 2;
-            group_representation.encode_u8(bytes_index++, bus_index);
-            group_representation.encode_u8(bytes_index++, resources.size());
-            // Append each device's representation
+        group_representation.encode_u8(1, static_cast<uint8_t>(spi_groups.size()));
+
+        for (const auto &[bus_idx, resources] : spi_groups) {
+            int64_t base = group_representation.size();
+            group_representation.resize(base + 2);
+            group_representation.encode_u8(base,     bus_idx);
+            group_representation.encode_u8(base + 1, static_cast<uint8_t>(resources.size()));
             for (const HDWISPIResource *resource : resources) {
-                PackedByteArray device_representation = resource->get_device_representation();
-                group_representation.append_array(device_representation);
-                bytes_size += device_representation.size();
-                bytes_index += device_representation.size();
-
+                group_representation.append_array(resource->get_device_representation());
             }
         }
 
@@ -153,16 +173,48 @@ namespace godot {
         }
     }
 
-    //Handler placeholders
-
     void HDWISPIResource::handle_spi_setup(PackedByteArray request_data) {
-        // Parse setup parameters from request_data and configure the SPI device accordingly
-        // This is a placeholder implementation and should be replaced with actual setup logic
+        // request_data = sim_set_up_request_t (8 bytes):
+        //   [0] action (0x01, redundant)
+        //   [1] mode (CPOL/CPHA bits)
+        //   [2] bits_per_word
+        //   [3] chip_select (redundant)
+        //   [4..7] speed_hz (u32 LE)
+        if (request_data.size() < 8) {
+            UtilityFunctions::print("SPI setup packet too short: " + String::num_int64(request_data.size()));
+            return;
+        }
+        mode          = request_data.decode_u8(1);
+        bits_per_word = request_data.decode_u8(2);
+        max_speed_hz  = request_data.decode_u32(4);
+        emit_signal("on_spi_setup", (int)mode, (int)bits_per_word, (int)max_speed_hz);
+    }
+
+    void HDWISPIResource::set_miso_buffer(PackedByteArray p_miso) {
+        miso_buffer = p_miso;
+    }
+
+    PackedByteArray HDWISPIResource::get_miso_buffer() const {
+        return miso_buffer;
     }
 
     void HDWISPIResource::handle_spi_transfer(PackedByteArray request_data) {
-        // Parse transfer parameters and data from request_data, perform the SPI transfer, and handle the response
-        // This is a placeholder implementation and should be replaced with actual transfer logic
+        // request_data = N raw MOSI bytes. Must respond with N MISO bytes before the
+        // kernel sends the next transfer or the stream desyncs.
+        int64_t n = request_data.size();
+        miso_buffer.resize(n);  // pre-zero to N bytes; GDScript on_spi_transfer handler may overwrite
+
+        emit_signal("on_spi_transfer", request_data);  // synchronous — handler runs before we continue
+
+        // Clamp or pad in case GDScript set the wrong size.
+        if (miso_buffer.size() != n) {
+            miso_buffer.resize(n);
+        }
+
+        PacketCPP *packet = memnew(PacketCPP);
+        packet->generate(CmdType::ACTION, HDWIType::SPI, 0, miso_buffer);
+        emit_signal("on_send", packet->convert_to_bytes());
+        memdelete(packet);
     }
     
 }

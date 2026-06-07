@@ -2,6 +2,7 @@
 #define PACKET_H
 
 
+#include "sim_packet_type.h"
 #include "../HDWI/hdwi_type.h"
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
@@ -10,23 +11,11 @@
 
 namespace godot {
 
-    
     #define VERSION 4
 
-     enum class CmdType : uint8_t {
-                CMD_SYNCH = 1,
-                CMD_ACTION = 2
-            };
-
-
-    struct PacketHeader {
-        uint16_t version;
-        CmdType cmd_id;
-        HDWIType type;
-        uint8_t device_index;
-        char reversed[3];
-        uint64_t time_ns;
-        uint32_t data_len;
+    enum class CmdType : uint8_t {
+        SYNCH  = 0x01,
+        ACTION = 0x02
     };
 
 
@@ -37,7 +26,7 @@ namespace godot {
         GDCLASS(PacketCPP, RefCounted)
         private:
             bool valid = false;
-            PacketHeader header;
+            simcall_header_t header;
             PackedByteArray data;
         
         protected:
@@ -51,7 +40,7 @@ namespace godot {
             
             PacketCPP();
 
-            void generate(uint8_t device_index, 
+            void generate(
                 CmdType cmd_type, 
                 HDWIType hdwi_type,
                 uint64_t time_ns,
@@ -63,7 +52,6 @@ namespace godot {
 
             int64_t get_cmd_id();
             int64_t get_type();
-            uint8_t get_device_index();
             uint64_t get_time_ns();
             static uint32_t get_header_len();
             uint32_t get_data_len();

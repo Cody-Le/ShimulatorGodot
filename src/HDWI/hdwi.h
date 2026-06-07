@@ -41,6 +41,8 @@ namespace godot {
             // Component - (HDWI) -> CommSeq
             void on_send();
 
+            // 
+
             // Methods
             // Comm - (Device Registry -> Component's HDWI Resource) -> HDWI
             virtual void dispatch_action(PackedByteArray request_data) = 0;

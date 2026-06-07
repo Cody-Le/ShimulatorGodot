@@ -2,105 +2,79 @@
 #define HDWI_GPIO_H
 
 #include "../hdwi.h"
+#include "../../IPC/sim_packet_type.h"
 #include <godot_cpp/variant/typed_array.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
+#include <unordered_map>
 
 namespace godot {
 
     #pragma pack(push,1)
     struct GpioRequest {
-        uint8_t action;   // SET / GET / DIR_IN / DIR_OUT / GET_DIR
+        uint8_t action;   // GPIO_GET / GPIO_SET / GPIO_DIR_IN / GPIO_DIR_OUT
         uint8_t offset;   // line number, 0..ngpio-1
         uint8_t value;    // SET / DIR_OUT initial level (0/1); ignored otherwise
     };                    // 3 bytes
     struct GpioResponse {
         uint8_t status;   // 0 = OK
-        uint8_t value;    // GET / GET_DIR result; else 0
+        uint8_t value;    // GET result; else 0
     };                    // 2 bytes
     #pragma pack(pop)
-
-
-    typedef uint8_t gpio_action_t;
-    // GPIO action constants
-    #define GPIO_GET       ((gpio_action_t)0x01)
-    #define GPIO_SET       ((gpio_action_t)0x02)
-    #define GPIO_DIR_OUT   ((gpio_action_t)0x03)
-    #define GPIO_DIR_IN    ((gpio_action_t)0x04)
-
-    typedef struct sim_gpio_request {
-        gpio_action_t action;
-        uint8_t offset;
-        uint8_t value;  // for set and dir_out
-    } sim_gpio_request_t;
-
-    typedef struct sim_gpio_response {
-        uint8_t value;  // for get and dir_in
-    } sim_gpio_response_t;
 
 
     class HDWIGPIOResource : public HDWIResource {
         GDCLASS(HDWIGPIOResource, HDWIResource)
         private:
-            // No member variables needed for now, but can be added later if necessary
-            HDWIType type = HDWIType::SPI;
-            // PackedInt32Array to hold the dir of each lines
-            PackedInt32Array gpio_dirs; // 0 for input, 1 for output
-            // PackedInt32Array to hold the value of each lines
-
-            
+            HDWIType type = HDWIType::GPIO;
+            PackedInt32Array gpio_dirs;
 
         protected:
             static void _bind_methods();
-            static TypedArray<HDWIGPIOResource> *gpio_resources; // Static array to hold all GPIO resources for group representation
+            static TypedArray<HDWIGPIOResource> *gpio_resources;
+            static std::unordered_map<uint8_t, int> chip_index_to_device_id;
 
-        
         public:
+            uint8_t chip_index = 0;
+            void set_chip_index(int p_chip_index);
+            int  get_chip_index() const;
 
             HDWIGPIOResource() = default;
-
             ~HDWIGPIOResource() = default;
 
             virtual void init() override {
-                if(gpio_resources == nullptr) {
+                if (gpio_resources == nullptr) {
                     gpio_resources = new TypedArray<HDWIGPIOResource>();
                 }
-                HDWIGPIOResource::gpio_resources->append(this); // Add this instance to the static array of GPIO resources
+                gpio_resources->append(this);
+                chip_index_to_device_id[chip_index] = gpio_resources->size() - 1;
             }
 
             virtual void clear() override {
-                // Remove this instance from the static array of GPIO resources upon destruction
-                HDWIGPIOResource::gpio_resources->erase(this);
+                gpio_resources->erase(this);
             }
-            // Signals
-            // Component - (HDWI) -> CommSeq
 
             void on_send();
-            //GPIO line changes signals
             void on_gpio_line_change(uint8_t line_offset, uint8_t new_value);
-            
-            // Methods
-            // Comm - (Device Registry -> Component's HDWI Resource) -> HDWI
+
             virtual void dispatch_action(PackedByteArray request_data) override;
 
-            // @export array of values, representing line offset and their values.
-            // Its length the ngpio.
             PackedInt32Array gpio_values;
             void set_gpio_values(PackedInt32Array p_gpio_values);
             PackedInt32Array get_gpio_values() const;
 
-            // Get all the devices of this type for group representation
             static PackedByteArray get_group_type_representation();
-
-            // Get device representation as a packed byte array
             PackedByteArray get_device_representation() const override;
 
+            // Returns 0-based index in gpio_resources for the chip identified by id;
+            // -1 if not registered.
+            static int gpio_dev_id_to_device_id(gpio_dev_id_t id);
+            // GDScript-callable variant.
+            static int lookup_gpio_device_id(int p_chip_index);
 
-            // GPIO Handler functions
-            void handle_gpio_get(sim_gpio_request_t request);
-            void handle_gpio_set(sim_gpio_request_t request);
-            void handle_gpio_dir_out(sim_gpio_request_t request);
-            void handle_gpio_dir_in(sim_gpio_request_t request);
-
+            void handle_gpio_get(GpioRequest request);
+            void handle_gpio_set(GpioRequest request);
+            void handle_gpio_dir_out(GpioRequest request);
+            void handle_gpio_dir_in(GpioRequest request);
     };
 
 }

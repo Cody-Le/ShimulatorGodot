@@ -2,6 +2,7 @@
 #define HDWI_SPI_H
 
 #include "../hdwi.h"
+#include "../../IPC/sim_packet_type.h"
 #include <godot_cpp/variant/typed_array.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <unordered_map>
@@ -9,19 +10,16 @@
 
 namespace godot {
 
-    #define SPI_SETUP 0x01
-    #define SPI_TRANSFER 0x02
-
-
     class HDWISPIResource : public HDWIResource {
         GDCLASS(HDWISPIResource, HDWIResource)
         private:
-            // No member variables needed for now, but can be added later if necessary
             HDWIType type = HDWIType::SPI;
 
         protected:
             static void _bind_methods();
-            static TypedArray<HDWISPIResource> *spi_resources; // Static array to hold all SPI resources for group representation
+            static TypedArray<HDWISPIResource> *spi_resources;
+            // Key: (bus_index << 8) | chip_select → 0-based index in spi_resources
+            static std::unordered_map<uint16_t, int> bus_cs_to_device_id;
 
         
         public:
@@ -32,10 +30,12 @@ namespace godot {
             ~HDWISPIResource() = default;
 
             virtual void init() override {
-                if(spi_resources == nullptr) {
+                if (spi_resources == nullptr) {
                     spi_resources = new TypedArray<HDWISPIResource>();
                 }
-                HDWISPIResource::spi_resources->append(this); // Add this instance to the static array of SPI resources
+                spi_resources->append(this);
+                uint16_t key = (static_cast<uint16_t>(bus_index) << 8) | chip_select_line;
+                bus_cs_to_device_id[key] = spi_resources->size() - 1;
             }
 
             virtual void clear() override {
@@ -71,6 +71,11 @@ namespace godot {
             void set_chip_select_line(uint8_t p_chip_select_line);
             uint8_t get_chip_select_line() const;
             
+            // Filled by GDScript inside the on_spi_transfer handler; consumed as MISO response.
+            PackedByteArray miso_buffer;
+            void set_miso_buffer(PackedByteArray p_miso);
+            PackedByteArray get_miso_buffer() const;
+
             // Handlers
             void handle_spi_setup(PackedByteArray request_data);
             void handle_spi_transfer(PackedByteArray request_data);
@@ -79,10 +84,14 @@ namespace godot {
             // Comm - (Device Registry -> Component's HDWI Resource) -> HDWI
             virtual void dispatch_action(PackedByteArray request_data) override;
 
-            // Get all the devices of this type for group representation
             static PackedByteArray get_group_type_representation();
-            
             PackedByteArray get_device_representation() const override;
+
+            // Returns 0-based index in spi_resources for the device identified by id;
+            // -1 if not registered.
+            static int spi_dev_id_to_device_id(spi_dev_id_t id);
+            // GDScript-callable variant.
+            static int lookup_spi_device_id(int p_bus_index, int p_chip_select);
     };
 }
 

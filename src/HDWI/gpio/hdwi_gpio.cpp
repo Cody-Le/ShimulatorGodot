@@ -2,48 +2,65 @@
 
 namespace godot {
 
+std::unordered_map<uint8_t, int> HDWIGPIOResource::chip_index_to_device_id;
+
 void HDWIGPIOResource::_bind_methods() {
-    // Call parent class bindings
     HDWIResource::_bind_methods();
 
-    // @Export variables bindings: line values
     ClassDB::bind_method(D_METHOD("set_gpio_values", "gpio_values"), &HDWIGPIOResource::set_gpio_values);
     ClassDB::bind_method(D_METHOD("get_gpio_values"), &HDWIGPIOResource::get_gpio_values);
     ClassDB::bind_method(D_METHOD("get_device_representation"), &HDWIGPIOResource::get_device_representation);
     ClassDB::bind_method(D_METHOD("dispatch_action", "request_data"), &HDWIGPIOResource::dispatch_action);
     ClassDB::bind_method(D_METHOD("init"), &HDWIGPIOResource::init);
     ClassDB::bind_method(D_METHOD("clear"), &HDWIGPIOResource::clear);
+    ClassDB::bind_method(D_METHOD("set_chip_index", "chip_index"), &HDWIGPIOResource::set_chip_index);
+    ClassDB::bind_method(D_METHOD("get_chip_index"), &HDWIGPIOResource::get_chip_index);
     ClassDB::bind_static_method("HDWIGPIOResource", D_METHOD("get_group_type_representation"), &HDWIGPIOResource::get_group_type_representation);
+    ClassDB::bind_static_method("HDWIGPIOResource", D_METHOD("lookup_gpio_device_id", "chip_index"), &HDWIGPIOResource::lookup_gpio_device_id);
 
     ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "gpio_values"), "set_gpio_values", "get_gpio_values");
-    // Signals
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "chip_index"), "set_chip_index", "get_chip_index");
     ADD_SIGNAL(MethodInfo("on_gpio_line_change", PropertyInfo(Variant::INT, "line_offset"), PropertyInfo(Variant::INT, "new_value")));
+}
 
-   
+void HDWIGPIOResource::set_chip_index(int p_chip_index) {
+    chip_index = static_cast<uint8_t>(p_chip_index);
+}
+
+int HDWIGPIOResource::get_chip_index() const {
+    return static_cast<int>(chip_index);
+}
+
+int HDWIGPIOResource::gpio_dev_id_to_device_id(gpio_dev_id_t id) {
+    auto it = chip_index_to_device_id.find(id.chip_index);
+    if (it == chip_index_to_device_id.end()) return -1;
+    return it->second;
+}
+
+int HDWIGPIOResource::lookup_gpio_device_id(int p_chip_index) {
+    auto it = chip_index_to_device_id.find(static_cast<uint8_t>(p_chip_index));
+    if (it == chip_index_to_device_id.end()) return -1;
+    return it->second;
 }
 
 void HDWIGPIOResource::dispatch_action(PackedByteArray request_data) {
     UtilityFunctions::print("Received dispatch_action call with request data size: " + String::num_int64(request_data.size()));
-    // Convert request_data byte data into sim_gpio_request struct
-    if (request_data.size() < sizeof(sim_gpio_request)) {
-        // Handle error: not enough data to form a valid request
-        UtilityFunctions::print("Error: Request data size is too small to form a valid sim_gpio_request struct.");
+    if (request_data.size() < (int64_t)sizeof(GpioRequest)) {
+        UtilityFunctions::print("Error: Request data size is too small to form a valid GpioRequest.");
         return;
     }
 
-    UtilityFunctions::print("Dispatching GPIO action with request data size: " + String::num_int64(request_data.size()));
-    sim_gpio_request_t request;
-    memcpy(&request, request_data.ptr(), sizeof(sim_gpio_request_t));
-    if(request.action == GPIO_SET) {
+    GpioRequest request;
+    memcpy(&request, request_data.ptr(), sizeof(GpioRequest));
+    if (request.action == GPIO_SET) {
         handle_gpio_set(request);
-    } else if(request.action == GPIO_DIR_OUT) {
+    } else if (request.action == GPIO_DIR_OUT) {
         handle_gpio_dir_out(request);
-    } else if(request.action == GPIO_DIR_IN) {
+    } else if (request.action == GPIO_DIR_IN) {
         handle_gpio_dir_in(request);
     } else {
         handle_gpio_get(request);
     }
-
 }
 
 void HDWIGPIOResource::set_gpio_values(PackedInt32Array p_gpio_values) {
@@ -76,21 +93,17 @@ PackedByteArray HDWIGPIOResource::get_device_representation() const{
 }
 
 // GPIO Handler functions
-void HDWIGPIOResource::handle_gpio_get(sim_gpio_request_t request) {
-    // Read the value at offset then emit on_send signal with sim_gpio_response
-    // as PackedByteArray data
-    if(request.offset < gpio_values.size()) {
-        uint8_t value = gpio_values.get(request.offset);
-        // Create sim_gpio_response struct
-        sim_gpio_response_t response;
-        response.value = value;
-        // Emit signal with response data
+void HDWIGPIOResource::handle_gpio_get(GpioRequest request) {
+    if (request.offset < gpio_values.size()) {
+        GpioResponse response;
+        response.status = 0;
+        response.value  = static_cast<uint8_t>(gpio_values.get(request.offset));
         PackedByteArray response_data;
-        response_data.resize(sizeof(sim_gpio_response_t));
-        memcpy(response_data.ptrw(), &response, sizeof(sim_gpio_response_t));
+        response_data.resize(sizeof(GpioResponse));
+        memcpy(response_data.ptrw(), &response, sizeof(GpioResponse));
         UtilityFunctions::print("Prepared response data with value: " + String::num_int64(response.value));
         PacketCPP *packet = memnew(PacketCPP);
-        packet->generate(0, CmdType::CMD_ACTION, type, 0, response_data);
+        packet->generate(CmdType::ACTION, type, 0, response_data);
         UtilityFunctions::print("Emitting on_send signal with response data size: " + String::num_int64(response_data.size()));
         emit_signal("on_send", packet->convert_to_bytes());
         memdelete(packet);
@@ -100,7 +113,7 @@ void HDWIGPIOResource::handle_gpio_get(sim_gpio_request_t request) {
 
 }
 
-void HDWIGPIOResource::handle_gpio_set(sim_gpio_request_t request) {
+void HDWIGPIOResource::handle_gpio_set(GpioRequest request) {
     // Set the value at offset to the value in the request, then emit on_send signal to notify of change
     if(request.offset < gpio_values.size()) {
         gpio_values.set(request.offset, request.value);
@@ -111,7 +124,7 @@ void HDWIGPIOResource::handle_gpio_set(sim_gpio_request_t request) {
     }
 }
 
-void HDWIGPIOResource::handle_gpio_dir_out(sim_gpio_request_t request) {
+void HDWIGPIOResource::handle_gpio_dir_out(GpioRequest request) {
     // Change gpio_dir at offset to output (1)
     if(request.offset < gpio_dirs.size()) {
         gpio_dirs.set(request.offset, 1);
@@ -121,7 +134,7 @@ void HDWIGPIOResource::handle_gpio_dir_out(sim_gpio_request_t request) {
     }
 }
 
-void HDWIGPIOResource::handle_gpio_dir_in(sim_gpio_request_t request) {
+void HDWIGPIOResource::handle_gpio_dir_in(GpioRequest request) {
     // Change gpio_dir at offset to input (0)
     if(request.offset < gpio_dirs.size()) {
         gpio_dirs.set(request.offset, 0);
@@ -140,9 +153,13 @@ TypedArray<HDWIGPIOResource> *HDWIGPIOResource::gpio_resources = nullptr;
 // Get all GPIO resources
 PackedByteArray HDWIGPIOResource::get_group_type_representation() {
     PackedByteArray group_representation;
-    group_representation.resize(2); // Append group type to representation
-    group_representation.encode_u8(0, static_cast<uint8_t>(HDWIType::GPIO)); // Assuming 0 represents GPIO group type
-    group_representation.encode_u8(1, HDWIGPIOResource::gpio_resources->size()); // Append number of groups to representation
+    group_representation.resize(2);
+    group_representation.encode_u8(0, static_cast<uint8_t>(HDWIType::GPIO));
+    if (gpio_resources == nullptr) {
+        group_representation.encode_u8(1, 0);
+        return group_representation;
+    }
+    group_representation.encode_u8(1, gpio_resources->size());
     for (const auto &resource_variant: *HDWIGPIOResource::gpio_resources) {
         const HDWIGPIOResource *gpio_resource = Object::cast_to<HDWIGPIOResource>(resource_variant);
         PackedByteArray device_representation = gpio_resource->get_device_representation();
