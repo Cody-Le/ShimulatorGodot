@@ -44,7 +44,7 @@ int HDWIGPIOResource::lookup_gpio_device_id(int p_chip_index) {
 }
 
 void HDWIGPIOResource::dispatch_action(PackedByteArray request_data) {
-    UtilityFunctions::print("Received dispatch_action call with request data size: " + String::num_int64(request_data.size()));
+    //UtilityFunctions::print("Received dispatch_action call with request data size: " + String::num_int64(request_data.size()));
     if (request_data.size() < (int64_t)sizeof(GpioRequest)) {
         UtilityFunctions::print("Error: Request data size is too small to form a valid GpioRequest.");
         return;
@@ -101,10 +101,10 @@ void HDWIGPIOResource::handle_gpio_get(GpioRequest request) {
         PackedByteArray response_data;
         response_data.resize(sizeof(GpioResponse));
         memcpy(response_data.ptrw(), &response, sizeof(GpioResponse));
-        UtilityFunctions::print("Prepared response data with value: " + String::num_int64(response.value));
+        //UtilityFunctions::print("Prepared response data with value: " + String::num_int64(response.value));
         PacketCPP *packet = memnew(PacketCPP);
         packet->generate(CmdType::ACTION, type, sim_time_ns, response_data);
-        UtilityFunctions::print("Emitting on_send signal with response data size: " + String::num_int64(response_data.size()));
+        //UtilityFunctions::print("Emitting on_send signal with response data size: " + String::num_int64(response_data.size()));
         emit_signal("on_send", packet->convert_to_bytes());
         memdelete(packet);
     } else {

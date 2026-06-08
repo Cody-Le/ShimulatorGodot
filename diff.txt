@@ -34,7 +34,7 @@ index 6c45dbc..6664fee 100644
 -}
 -
 -void HDWIGPIOResource::dispatch_action(PackedByteArray request_data) {
--    UtilityFunctions::print("Received dispatch_action call with request data size: " + String::num_int64(request_data.size()));
+-    //UtilityFunctions::print("Received dispatch_action call with request data size: " + String::num_int64(request_data.size()));
 -    // Convert request_data byte data into sim_gpio_request struct
 -    if (request_data.size() < sizeof(sim_gpio_request)) {
 -        // Handle error: not enough data to form a valid request
@@ -42,7 +42,7 @@ index 6c45dbc..6664fee 100644
 -        return;
 -    }
 -
--    UtilityFunctions::print("Dispatching GPIO action with request data size: " + String::num_int64(request_data.size()));
+-    //UtilityFunctions::print("Dispatching GPIO action with request data size: " + String::num_int64(request_data.size()));
 -    sim_gpio_request_t request;
 -    memcpy(&request, request_data.ptr(), sizeof(sim_gpio_request_t));
 -    if(request.action == GPIO_SET) {

@@ -64,27 +64,31 @@ namespace godot {
             void on_send();
 
             // Bus index in @example variable, setter and getter
-            uint8_t bus_index;
+            // Part of the (bus_index, chip_select_line) routing key — MUST default to
+            // a deterministic value, else an unset .tscn property leaves it indeterminate
+            // and _spi_map gets keyed on garbage, dropping every transfer for this device.
+            uint8_t bus_index = 0;
             void set_bus_index(uint8_t p_bus_index);
             uint8_t get_bus_index() const;
 
             // Speed in Hz @export variable, setter and getter
-            uint32_t max_speed_hz;
+            uint32_t max_speed_hz = 0;
             void set_max_speed_hz(uint32_t p_speed_hz);
             uint32_t get_max_speed_hz() const;
 
             // Mode (0-3) @export variable, setter and getter
-            uint8_t mode;
+            uint8_t mode = 0;
             void set_mode(uint8_t p_mode);
             uint8_t get_mode() const;
 
             // Bits per word @export variable, setter and getter
-            uint8_t bits_per_word;
+            uint8_t bits_per_word = 0;
             void set_bits_per_word(uint8_t p_bits_per_word);
             uint8_t get_bits_per_word() const;
 
             // Chip select line @export variable, setter and getter
-            uint8_t chip_select_line;
+            // Other half of the routing key — same determinism requirement as bus_index.
+            uint8_t chip_select_line = 0;
             void set_chip_select_line(uint8_t p_chip_select_line);
             uint8_t get_chip_select_line() const;
             
