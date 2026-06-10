@@ -12,6 +12,7 @@
 // MSVC doesn't support __attribute__((packed)); use pragma pack instead.
 #ifdef _MSC_VER
   #define SIM_PACKED
+  #pragma pack(push, 1)
 #else
   #define SIM_PACKED __attribute__((packed))
 #endif
@@ -74,6 +75,19 @@ typedef struct SIM_PACKED {
     spi_action_t action;
     uint8_t      _pad;
 } spi_dev_id_t;
+
+// ── I2C ──────────────────────────────────────────────────────────────────────
+typedef uint8_t i2c_action_t;
+
+#define I2C_WRITE ((i2c_action_t)0x01)  // master -> slave; payload = bytes written
+#define I2C_READ  ((i2c_action_t)0x02)  // master <- slave; payload = u16 read length
+
+typedef struct SIM_PACKED {
+    uint8_t      bus_index;     // adapter index (== /dev/i2c-N)
+    uint8_t      address;       // 7-bit slave address from the i2c_msg
+    i2c_action_t action;
+    uint8_t      _pad;
+} i2c_dev_id_t;
 
 // ── UART ─────────────────────────────────────────────────────────────────────
 typedef uint8_t uart_action_t;

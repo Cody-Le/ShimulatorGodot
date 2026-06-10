@@ -140,6 +140,7 @@ namespace {
         switch (t) {
             case HDWI_TYPE_GPIO:    return 2;
             case HDWI_TYPE_UART:    return 2;
+            case HDWI_TYPE_I2C:     return 4;
             case HDWI_TYPE_SPI:     return 4;
             case HDWI_TYPE_ONEWIRE: return 2;
             default:                return 0;

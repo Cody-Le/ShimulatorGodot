@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="HDWII2CResource" inherits="HDWIResource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Virtual I2C slave on a (bus, address) - models one device on [code]/dev/i2c-&lt;bus_index&gt;[/code].
+	</brief_description>
+	<description>
+		Represents one I2C slave addressed by ([member bus_index], [member address]). The kernel decomposes every FSW transfer - including SMBus calls ([code]i2c_smbus_read_byte_data[/code], [code]write_word_data[/code], block ops, …) - into raw WRITE/READ messages before they reach the engine, so this resource only ever sees two asymmetric actions. That asymmetry is what keeps the kernel's shared stream framed:
+		[constant I2C_WRITE] - master [i]to[/i] slave. A pure sink: the payload is appended to [member from_master] and [signal on_i2c_write] is emitted. This resource [b]never[/b] replies to a write - a response here desyncs the kernel's read loop. A zero-length write is an address probe / SMBus quick-command; note its presence, but still send no reply.
+		[constant I2C_READ] - master [i]from[/i] slave. A request/response: the payload is a [code]u16[/code] little-endian byte count. This resource [b]always[/b] replies with [b]exactly[/b] that many bytes. The kernel hard-checks that the reply's [code]data_len[/code] equals the requested length and returns [code]-EIO[/code] to the FSW on any mismatch, so fill [member read_buffer] to the exact length (it is clamped/padded otherwise). The response carries no dev_id (the socket is strictly in-order, so the kernel knows which read it answers).
+		The canonical "read register R" arrives as two frames in order - a WRITE carrying [code][R][/code] (latch your register pointer), immediately followed by a READ for the data. There is no repeated-start flag on the wire; just honor frame order per ([member bus_index], [member address]).
+		[b]How to interface[/b]
+		[olist]
+		[*]Set the addressing properties: [member bus_index] and [member address]. Set [member device_name]. List buses contiguously from 0 so kernel-assigned adapter numbers line up with [member bus_index].
+		[*]Call [method HDWIResource.init] to register the device.
+		[*]Connect [signal on_i2c_write] to consume bytes the FSW writes (latch a register pointer, store config, …).
+		[*]Connect [signal on_i2c_read]; in the handler fill [member read_buffer] with [b]exactly[/b] the requested length [b]synchronously[/b] - the handler runs inline before the response is framed, so the stream desyncs if you defer it.
+		[*]Connect [signal HDWIResource.on_send] to forward the READ response to the kernel socket.
+		[/olist]
+		[b]Example - a register-file slave (write sets pointer, read returns from it)[/b]
+		[codeblock]
+		var i2c = HDWII2CResource.new()
+		i2c.device_name = "bme280"
+		i2c.bus_index = 1
+		i2c.address = 0x76
+		i2c.init()
+
+		var registers := {}   # register address -> byte value
+		var ptr := 0          # current register pointer
+
+		i2c.on_i2c_write.connect(_on_write)
+		i2c.on_i2c_read.connect(_on_read)
+		i2c.on_send.connect(_write_to_kernel_socket)
+
+		func _on_write(address, data):
+		    if data.size() == 0:
+		        return                       # address probe / quick-command
+		    ptr = data[0]                    # first byte is the register pointer
+		    for i in range(1, data.size()):  # remaining bytes are a register write
+		        registers[ptr + i - 1] = data[i]
+
+		func _on_read(address, length):
+		    var out := PackedByteArray()
+		    out.resize(length)
+		    for i in length:
+		        out[i] = registers.get(ptr + i, 0)
+		    i2c.read_buffer = out            # MUST be exactly `length` bytes
+		[/codeblock]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="handle_i2c_write">
+			<return type="void" />
+			<param index="0" name="payload" type="PackedByteArray" />
+			<description>
+				Internal. Appends [param payload] to [member from_master] and emits [signal on_i2c_write]. Sends no response. Invoked by [method HDWIResource.dispatch_action] for [constant I2C_WRITE].
+			</description>
+		</method>
+		<method name="handle_i2c_read">
+			<return type="void" />
+			<param index="0" name="payload" type="PackedByteArray" />
+			<description>
+				Internal. Decodes the [code]u16[/code] LE requested length from [param payload], pre-zeroes [member read_buffer] to that length, emits [signal on_i2c_read] (synchronous, so GDScript can fill it), clamps/pads to the exact length, frames it, and emits [signal HDWIResource.on_send]. Invoked by [method HDWIResource.dispatch_action] for [constant I2C_READ].
+			</description>
+		</method>
+		<method name="get_group_type_representation" qualifiers="static">
+			<return type="PackedByteArray" />
+			<description>
+				Builds the I2C section of the [code]CMD_SYNCH[/code] registration body: [code][type][num_bus][/code] followed by one entry per bus in ascending [member bus_index] order, each [code][bus_index][num_dev][/code] then each device's 32-byte name plus 1-byte address. Buses are emitted ordered so kernel-assigned adapter numbers line up with [member bus_index]. Called by the registry during sync.
+			</description>
+		</method>
+		<method name="lookup_i2c_device_id" qualifiers="static">
+			<return type="int" />
+			<param index="0" name="bus_index" type="int" />
+			<param index="1" name="address" type="int" />
+			<description>
+				Returns the 0-based registry slot of the slave at ([param bus_index], [param address]), or [code]-1[/code] if none is registered.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="bus_index" type="int" setter="set_bus_index" getter="get_bus_index" default="0">
+			Adapter index this slave lives on - the [code]/dev/i2c-N[/code] the kernel assigns positionally during sync. Part of the routing key; list buses contiguously from 0 so the assigned number matches.
+		</member>
+		<member name="address" type="int" setter="set_address" getter="get_address" default="0">
+			7-bit slave address (inner I2C header [code]address[/code]). Together with [member bus_index] it uniquely identifies the device.
+		</member>
+		<member name="from_master" type="PackedByteArray" setter="set_from_master" getter="get_from_master" default="PackedByteArray()">
+			Bytes the FSW has written to this slave ([constant I2C_WRITE]), accumulated in order. The simulation consumes these; clear by assigning an empty array. Each write also arrives live via [signal on_i2c_write].
+		</member>
+		<member name="read_buffer" type="PackedByteArray" setter="set_read_buffer" getter="get_read_buffer" default="PackedByteArray()">
+			The bytes returned for the current [constant I2C_READ]. Fill this inside the [signal on_i2c_read] handler. Length must equal the requested byte count (it is clamped/padded otherwise) or the kernel returns [code]-EIO[/code] to the FSW.
+		</member>
+	</members>
+	<signals>
+		<signal name="on_i2c_write">
+			<param index="0" name="address" type="int" />
+			<param index="1" name="data" type="PackedByteArray" />
+			<description>
+				Emitted when the FSW writes [param data] to this slave. A zero-length [param data] is an address probe / SMBus quick-command. No response is sent for a write.
+			</description>
+		</signal>
+		<signal name="on_i2c_read">
+			<param index="0" name="address" type="int" />
+			<param index="1" name="length" type="int" />
+			<description>
+				Emitted on each [constant I2C_READ], before [member read_buffer] is shipped, with the exact number of bytes the master wants. Fill [member read_buffer] with [param length] bytes synchronously before the handler returns - the response is framed and sent the instant this signal returns.
+			</description>
+		</signal>
+	</signals>
+	<constants>
+	</constants>
+</class>

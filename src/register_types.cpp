@@ -3,6 +3,7 @@
 #include "HDWI/hdwi.h"
 #include "HDWI/gpio/hdwi_gpio.h"
 #include "HDWI/spi/hdwi_spi.h"
+#include "HDWI/i2c/hdwi_i2c.h"
 #include "HDWI/onewire/hdwi_onewire.h"
 #include "HDWI/uart/hdwi_uart.h"
 
@@ -22,6 +23,7 @@ void initialize_module(ModuleInitializationLevel p_level) {
     GDREGISTER_ABSTRACT_CLASS(HDWIResource);
     GDREGISTER_CLASS(HDWIGPIOResource);
     GDREGISTER_CLASS(HDWISPIResource);
+    GDREGISTER_CLASS(HDWII2CResource);
     GDREGISTER_CLASS(HDWIOneWireResource);
     GDREGISTER_CLASS(HDWIUARTResource);
 
