@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "mcp__claude_ai_FSWAutoDocServer__add_architecture_decision",
+      "mcp__claude_ai_FSWAutoDocServer__str_replace_in_doc",
+      "mcp__claude_ai_FSWAutoDocServer__compile_doc",
+      "mcp__claude_ai_FSWAutoDocServer__compile_all",
+      "mcp__claude_ai_FSWAutoDocServer__git_commit_push"
+    ]
+  }
+}

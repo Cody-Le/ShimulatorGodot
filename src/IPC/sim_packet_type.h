@@ -10,9 +10,12 @@
 #endif
 
 // MSVC doesn't support __attribute__((packed)); use pragma pack instead.
+// IMPORTANT: pack(push,1) is opened LATER (just before the inner dev_id structs),
+// NOT here, so it does not wrap simcall_header_t. The outer header must keep its
+// natural alignment (trailing pad) to be exactly 24 bytes on every compiler —
+// packing it makes MSVC emit a 20-byte header and corrupt the wire format.
 #ifdef _MSC_VER
   #define SIM_PACKED
-  #pragma pack(push, 1)
 #else
   #define SIM_PACKED __attribute__((packed))
 #endif
@@ -49,6 +52,13 @@ typedef struct {
     uint64_t    time_ns;       // offset 8
     uint32_t    data_len;      // covers data only, not dev_id
 } simcall_header_t;
+
+// Inner peripheral headers ARE packed. Open the pragma here so it covers only
+// these structs, leaving simcall_header_t above at natural 24-byte alignment on
+// MSVC. (Matched by the #pragma pack(pop) after the last dev_id struct.)
+#ifdef _MSC_VER
+  #pragma pack(push, 1)
+#endif
 
 // ── GPIO ─────────────────────────────────────────────────────────────────────
 typedef uint8_t gpio_action_t;

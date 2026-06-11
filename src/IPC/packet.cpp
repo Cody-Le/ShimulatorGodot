@@ -3,6 +3,11 @@
 
 using namespace godot;
 
+// The wire header is 24 bytes (natural alignment, version 4). If the pragma pack
+// in sim_packet_type.h ever wraps simcall_header_t again, MSVC packs it to 20
+// and silently corrupts every frame — fail the build here instead.
+static_assert(sizeof(simcall_header_t) == 24, "simcall_header_t must be 24 bytes on the wire");
+
 
 PacketCPP::PacketCPP() {
     this->valid = false;
