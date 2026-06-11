@@ -148,6 +148,7 @@ namespace {
             case HDWI_TYPE_I2C:     return 4;
             case HDWI_TYPE_SPI:     return 4;
             case HDWI_TYPE_ONEWIRE: return 2;
+            case HDWI_TYPE_V4L2:    return 2;
             default:                return 0;
         }
     }

@@ -123,6 +123,43 @@ typedef struct SIM_PACKED {
     onewire_action_t action;
 } onewire_dev_id_t;
 
+// ── V4L2 ─────────────────────────────────────────────────────────────────────
+// V4L2 inverts the usual data flow: the engine PUSHES camera frames to the
+// kernel as reverse-channel CMD_EVENT / SIM_EVENT_FRAME packets (:7778) rather
+// than answering a kernel-initiated read. The kernel may still issue these
+// control actions on the forward channel to gate streaming.
+typedef uint8_t v4l2_action_t;
+
+#define V4L2_STREAM_ON  ((v4l2_action_t)0x01)  // FSW called VIDIOC_STREAMON
+#define V4L2_STREAM_OFF ((v4l2_action_t)0x02)  // FSW called VIDIOC_STREAMOFF
+
+typedef struct SIM_PACKED {
+    uint8_t       video_index;   // == /dev/video<video_index>, also the event device_id
+    v4l2_action_t action;
+} v4l2_dev_id_t;
+
+// Reverse-channel event ids (sim_event_t). Mirror the kernel's values; kept here
+// so the engine can stamp the FRAME event id it pushes. CMD_EVENT and
+// sim_event_hdr_t themselves live kernel-side / in the GDScript EventClient.
+#define SIM_EVENT_IRQ   ((uint8_t)0x01)
+#define SIM_EVENT_FRAME ((uint8_t)0x02)
+
+// FourCC packer (V4L2 pixel formats are little-endian 4-char codes).
+#define SIM_FOURCC(a, b, c, d) \
+    ((uint32_t)(uint8_t)(a) | ((uint32_t)(uint8_t)(b) << 8) | \
+     ((uint32_t)(uint8_t)(c) << 16) | ((uint32_t)(uint8_t)(d) << 24))
+#define V4L2_PIX_FMT_RGB24_SIM SIM_FOURCC('R', 'G', 'B', '3')
+
+// SIM_EVENT_FRAME payload: this header followed by `bytesused` raw pixel bytes.
+// Sits after the 4-byte sim_event_hdr_t, so data_len = sizeof(this) + bytesused.
+typedef struct SIM_PACKED {
+    uint32_t width;
+    uint32_t height;
+    uint32_t pixfmt;      // V4L2 FourCC, e.g. V4L2_PIX_FMT_RGB24_SIM
+    uint32_t bytesused;   // pixel bytes following this header
+    uint32_t sequence;    // monotonic frame counter
+} v4l2_frame_hdr_t;       // 20 bytes
+
 #ifdef _MSC_VER
   #pragma pack(pop)
 #endif

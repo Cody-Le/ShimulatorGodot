@@ -6,6 +6,7 @@
 #include "HDWI/i2c/hdwi_i2c.h"
 #include "HDWI/onewire/hdwi_onewire.h"
 #include "HDWI/uart/hdwi_uart.h"
+#include "HDWI/v4l2/hdwi_v4l2.h"
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/defs.hpp>
@@ -26,6 +27,7 @@ void initialize_module(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(HDWII2CResource);
     GDREGISTER_CLASS(HDWIOneWireResource);
     GDREGISTER_CLASS(HDWIUARTResource);
+    GDREGISTER_CLASS(HDWIV4L2Resource);
 
 }
 

@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="HDWIV4L2Resource" inherits="HDWIResource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../class.xsd">
+	<brief_description>
+		Virtual V4L2 capture device the FSW opens as [code]/dev/video&lt;video_index&gt;[/code] - a simulated USB camera.
+	</brief_description>
+	<description>
+		V4L2 is the one peripheral whose data flow is [b]reversed[/b]. Every other resource answers a kernel-initiated read on the forward channel; this one is a [i]source[/i]. A frame originates engine-side - a Godot node renders or loads an [Image] - and is [b]pushed[/b] to the kernel over the reverse channel (the EventClient on [code]:7778[/code]) as a [code]CMD_EVENT[/code] / [code]SIM_EVENT_FRAME[/code] packet. The kernel hands it to the FSW as the next dequeued capture buffer.
+		The resource never frames the wire header itself: [method send_image] emits [signal on_event] with [code](hdwi_type, device_id, event, payload)[/code], and the comm layer ([code]ComponentRegistry.send_event[/code] -&gt; EventClient) stamps the simcall and event headers and ships it. The payload is a 20-byte frame header (width, height, pixfmt, bytesused, sequence) followed by raw RGB24 pixels.
+		[b]The streaming gate.[/b] [member streaming] decides whether frames actually go out. While it is [code]false[/code], [method send_image] and [method send_frame] drop the frame and emit nothing - so a producer may call them every render tick without flooding the reverse channel. Flip it on only while a consumer wants frames. The FSW can also drive it: [code]VIDIOC_STREAMON[/code] / [code]VIDIOC_STREAMOFF[/code] arrive as forward-channel control actions that toggle [member streaming] and emit [signal on_stream_state], so a node can produce frames purely in response to the FSW opening the stream.
+		[b]How to interface[/b]
+		[olist]
+		[*]Set [member video_index] - the kernel assigns indices by position in the sync body, so this must match that position (the registry emits devices in [member video_index] order) and is also the [code]/dev/video[/code] minor and the reverse-channel [code]device_id[/code]. Set [member device_name], and optionally [member frame_width] / [member frame_height] for the format advertised at registration.
+		[*]Call [method HDWIResource.init] to register the device.
+		[*]Turn [member streaming] on when a consumer wants frames (or react to [signal on_stream_state]).
+		[*]Call [method send_image] from any node to push a frame.
+		[/olist]
+		[b]Example - stream a viewport into the FSW's camera[/b]
+		[codeblock]
+		var cam = HDWIV4L2Resource.new()
+		cam.device_name = "usbcam0"
+		cam.video_index = 0
+		cam.init()
+
+		# Only burn the link while the FSW is actually capturing.
+		cam.on_stream_state.connect(func(idx, on): cam.streaming = on)
+
+		func _process(_dt):
+		    # Cheap while not streaming - send_image() early-returns.
+		    cam.send_image(get_viewport().get_texture().get_image())
+		[/codeblock]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="send_image">
+			<return type="void" />
+			<param index="0" name="image" type="Image" />
+			<description>
+				Pushes one frame to the FSW. Converts [param image] to RGB24 if it is not already [constant Image.FORMAT_RGB8] (without mutating the caller's image), wraps it in a frame header, and emits [signal on_event] for the comm layer to ship over the reverse channel. A [b]no-op[/b] when [member streaming] is [code]false[/code] or [param image] is null, so it is safe to call unconditionally every frame.
+			</description>
+		</method>
+		<method name="send_frame">
+			<return type="void" />
+			<param index="0" name="pixels" type="PackedByteArray" />
+			<param index="1" name="width" type="int" />
+			<param index="2" name="height" type="int" />
+			<param index="3" name="pixfmt" type="int" />
+			<description>
+				Raw escape hatch behind [method send_image]: ships pre-encoded [param pixels] with an explicit V4L2 FourCC [param pixfmt]. [param width] and [param height] must agree with the pixel layout. A [b]no-op[/b] while [member streaming] is [code]false[/code].
+			</description>
+		</method>
+		<method name="get_group_type_representation" qualifiers="static">
+			<return type="PackedByteArray" />
+			<description>
+				Builds the V4L2 section of the [code]CMD_SYNCH[/code] registration body: [code][type][count][/code] followed by each device's 32-byte name plus its default [code][width][height][pixfmt][/code], emitted in [member video_index] order so kernel-assigned indices line up.
+			</description>
+		</method>
+		<method name="lookup_v4l2_device_id" qualifiers="static">
+			<return type="int" />
+			<param index="0" name="video_index" type="int" />
+			<description>
+				Returns the 0-based registry slot of the device with the given [member video_index], or [code]-1[/code] if none is registered.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="video_index" type="int" setter="set_video_index" getter="get_video_index" default="0">
+			Natural identifier on the wire ([code]v4l2_dev_id_t.video_index[/code]), the [code]/dev/video&lt;video_index&gt;[/code] minor, and the reverse-channel event [code]device_id[/code]. Must match the position the kernel assigns during sync; registration is emitted in this order to guarantee that.
+		</member>
+		<member name="frame_width" type="int" setter="set_frame_width" getter="get_frame_width" default="640">
+			Default frame width advertised at registration so the kernel can seed [code]VIDIOC_G_FMT[/code] before the first frame. Each pushed frame still carries its own width, so this is only the initial guess.
+		</member>
+		<member name="frame_height" type="int" setter="set_frame_height" getter="get_frame_height" default="480">
+			Default frame height advertised at registration. See [member frame_width].
+		</member>
+		<member name="streaming" type="bool" setter="set_streaming" getter="is_streaming" default="false">
+			The streaming gate. While [code]false[/code], [method send_image] and [method send_frame] drop frames and emit nothing, so producers can call them every tick for free. Flip on when a consumer wants frames; the FSW also toggles it via [code]VIDIOC_STREAMON[/code] / [code]VIDIOC_STREAMOFF[/code] (see [signal on_stream_state]).
+		</member>
+	</members>
+	<signals>
+		<signal name="on_event">
+			<param index="0" name="hdwi_type" type="int" />
+			<param index="1" name="device_id" type="int" />
+			<param index="2" name="event" type="int" />
+			<param index="3" name="payload" type="PackedByteArray" />
+			<description>
+				Reverse-channel push raised by [method send_image] / [method send_frame]. The [code]ComponentRegistry[/code] connects this straight to its [code]send_event[/code], which forwards it out the EventClient. [param payload] is the 20-byte frame header followed by raw pixels. Not meant to be consumed directly.
+			</description>
+		</signal>
+		<signal name="on_stream_state">
+			<param index="0" name="video_index" type="int" />
+			<param index="1" name="streaming" type="bool" />
+			<description>
+				Emitted when the FSW toggles capture via [code]VIDIOC_STREAMON[/code] / [code]VIDIOC_STREAMOFF[/code], which sets [member streaming] accordingly. Connect it to start or stop producing frames in lockstep with the FSW.
+			</description>
+		</signal>
+	</signals>
+	<constants>
+	</constants>
+</class>
