@@ -6,7 +6,16 @@
       "mcp__claude_ai_FSWAutoDocServer__str_replace_in_doc",
       "mcp__claude_ai_FSWAutoDocServer__compile_doc",
       "mcp__claude_ai_FSWAutoDocServer__compile_all",
-      "mcp__claude_ai_FSWAutoDocServer__git_commit_push"
+      "mcp__claude_ai_FSWAutoDocServer__git_commit_push",
+      "Bash(git -C \"d:/Documents/Programming/SSRL/GodotShimulator/godot-fsw-tcp\" show --stat --oneline HEAD)",
+      "Bash(git reset *)",
+      "Bash(git restore *)",
+      "Bash(git add *)",
+      "Bash(git check-ignore *)",
+      "Bash(git commit -m '@ *)",
+      "Bash(git push *)",
+      "Bash(grep -i \"NightSkyHDRI008_8K_HDR.exr$\")",
+      "Bash(git commit *)"
     ]
   }
 }
