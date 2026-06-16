@@ -15,7 +15,13 @@
       "Bash(git commit -m '@ *)",
       "Bash(git push *)",
       "Bash(grep -i \"NightSkyHDRI008_8K_HDR.exr$\")",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(cat Core/Vehicle/Component/component.gd.uid)",
+      "Bash(cat Scene/UART/uart_test.gd.uid)",
+      "Bash(stat -c '%Y %n' godot-fsw-tcp/bin/libsim.windows.template_debug.x86_64.dll src/HDWI/v4l2/hdwi_v4l2.windows.template_debug.x86_64.obj)",
+      "Bash(grep -c \"HDWIV4L2Resource\" godot-fsw-tcp/bin/libsim.windows.template_debug.x86_64.dll)",
+      "PowerShell(\\(Get-Command scons -ErrorAction SilentlyContinue\\).Source; \\(Get-Command python -ErrorAction SilentlyContinue\\).Source; python --version)",
+      "PowerShell(scons platform=windows target=template_debug -j8 2>&1)"
     ]
   }
 }

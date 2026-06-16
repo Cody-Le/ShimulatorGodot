@@ -18,9 +18,31 @@ void HDWIGPIOResource::_bind_methods() {
     ClassDB::bind_static_method("HDWIGPIOResource", D_METHOD("get_group_type_representation"), &HDWIGPIOResource::get_group_type_representation);
     ClassDB::bind_static_method("HDWIGPIOResource", D_METHOD("lookup_gpio_device_id", "chip_index"), &HDWIGPIOResource::lookup_gpio_device_id);
 
+    ClassDB::bind_method(D_METHOD("set_irq_enabled", "enabled"), &HDWIGPIOResource::set_irq_enabled);
+    ClassDB::bind_method(D_METHOD("get_irq_enabled"), &HDWIGPIOResource::get_irq_enabled);
+    ClassDB::bind_method(D_METHOD("send_line_change_irq", "line", "value"), &HDWIGPIOResource::send_line_change_irq);
+
     ADD_PROPERTY(PropertyInfo(Variant::PACKED_INT32_ARRAY, "gpio_values"), "set_gpio_values", "get_gpio_values");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "chip_index"), "set_chip_index", "get_chip_index");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "irq_enabled"), "set_irq_enabled", "get_irq_enabled");
     ADD_SIGNAL(MethodInfo("on_gpio_line_change", PropertyInfo(Variant::INT, "line_offset"), PropertyInfo(Variant::INT, "new_value")));
+}
+
+void HDWIGPIOResource::set_irq_enabled(bool p_enabled) {
+    irq_enabled = p_enabled;
+}
+
+bool HDWIGPIOResource::get_irq_enabled() const {
+    return irq_enabled;
+}
+
+void HDWIGPIOResource::send_line_change_irq(int line, int value) {
+    PackedByteArray payload;
+    payload.resize(sizeof(sim_gpio_irq_payload_t));  // 3
+    payload.encode_u8(0, GPIO_IRQ_LINE_CHANGE);
+    payload.encode_u8(1, static_cast<uint8_t>(line));
+    payload.encode_u8(2, static_cast<uint8_t>(value));
+    emit_irq(HDWIType::GPIO, chip_index, payload);
 }
 
 void HDWIGPIOResource::set_chip_index(int p_chip_index) {
@@ -69,6 +91,14 @@ void HDWIGPIOResource::set_gpio_values(PackedInt32Array p_gpio_values) {
         if (i >= gpio_values.size() || gpio_values.get(i) != p_gpio_values.get(i)) {
             // Emit signal for line change
             emit_signal("on_gpio_line_change", i, p_gpio_values.get(i));
+            // Engine-driven edge on an INPUT line is a hardware interrupt: push it to
+            // the FSW. A line the FSW configured as OUTPUT (gpio_dirs[i] == 1) is
+            // driven by the FSW, not us, so it never raises an IRQ. Unconfigured
+            // lines default to input.
+            bool is_input = (i >= gpio_dirs.size()) || gpio_dirs.get(i) == 0;
+            if (irq_enabled && is_input) {
+                send_line_change_irq(i, p_gpio_values.get(i));
+            }
         }
     }
     //Shrink gpio_dir with the size of gpio_values

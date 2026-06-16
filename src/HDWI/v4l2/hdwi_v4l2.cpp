@@ -49,17 +49,16 @@ namespace godot {
         ClassDB::bind_static_method("HDWIV4L2Resource", D_METHOD("get_group_type_representation"), &HDWIV4L2Resource::get_group_type_representation);
         ClassDB::bind_static_method("HDWIV4L2Resource", D_METHOD("lookup_v4l2_device_id", "video_index"), &HDWIV4L2Resource::lookup_v4l2_device_id);
 
+        ClassDB::bind_method(D_METHOD("send_frame_drop"), &HDWIV4L2Resource::send_frame_drop);
+        ClassDB::bind_method(D_METHOD("send_overflow"), &HDWIV4L2Resource::send_overflow);
+        ClassDB::bind_method(D_METHOD("send_error", "error_code"), &HDWIV4L2Resource::send_error);
+
         BIND_CONSTANT(V4L2_STREAM_ON);
         BIND_CONSTANT(V4L2_STREAM_OFF);
 
-        // Reverse-channel push. The registry connects this straight to its
-        // send_event(...) so the EventClient frames and ships it; the resource never
-        // touches the wire headers. payload = v4l2_frame_hdr_t + raw pixels.
-        ADD_SIGNAL(MethodInfo("on_event",
-            PropertyInfo(Variant::INT, "hdwi_type"),
-            PropertyInfo(Variant::INT, "device_id"),
-            PropertyInfo(Variant::INT, "event"),
-            PropertyInfo(Variant::PACKED_BYTE_ARRAY, "payload")));
+        // on_event (the reverse-channel push the registry ships out :7778) is declared
+        // on the HDWIResource base; frames travel through it as SIM_EVENT_FRAME and
+        // the error IRQs below as SIM_EVENT_IRQ.
         // Emitted when the FSW toggles streaming via VIDIOC_STREAMON/STREAMOFF, so a
         // node can start/stop producing frames in response.
         ADD_SIGNAL(MethodInfo("on_stream_state",
@@ -136,6 +135,38 @@ namespace godot {
         payload.append_array(p_pixels);
 
         emit_signal("on_event", (int)HDWIType::V4L2, (int)video_index, (int)SIM_EVENT_FRAME, payload);
+    }
+
+    // Reverse-channel error/control IRQs (SIM_EVENT_IRQ). Unlike frames, these are
+    // not gated on `streaming` — V4L2_IRQ_ERROR is precisely how you abort a stuck
+    // stream. Payload is sim_v4l2_irq_payload_t (9 bytes): [irq][sequence u32][error_code i32].
+    static PackedByteArray build_v4l2_irq(uint8_t irq, uint32_t sequence, int32_t error_code) {
+        PackedByteArray payload;
+        payload.resize(sizeof(sim_v4l2_irq_payload_t));  // 9
+        payload.encode_u8(0, irq);
+        payload.encode_u32(1, sequence);
+        payload.encode_s32(5, error_code);
+        return payload;
+    }
+
+    void HDWIV4L2Resource::send_frame_drop() {
+        // The kernel errors one queued buffer and advances its own sequence; report
+        // the sequence we would have stamped next and keep ours in lockstep.
+        emit_irq(HDWIType::V4L2, video_index, build_v4l2_irq(V4L2_IRQ_FRAME_DROP, frame_sequence++, 0));
+    }
+
+    void HDWIV4L2Resource::send_overflow() {
+        emit_irq(HDWIType::V4L2, video_index, build_v4l2_irq(V4L2_IRQ_OVERFLOW, 0, 0));
+    }
+
+    void HDWIV4L2Resource::send_error(int error_code) {
+        // Mirror the kernel: streaming halts and queued buffers are flushed as errors.
+        // Reflect that locally so producers stop pushing frames into a dead stream.
+        emit_irq(HDWIType::V4L2, video_index, build_v4l2_irq(V4L2_IRQ_ERROR, 0, (int32_t)error_code));
+        if (streaming) {
+            streaming = false;
+            emit_signal("on_stream_state", (int)video_index, false);
+        }
     }
 
     void HDWIV4L2Resource::dispatch_action(PackedByteArray request_data) {

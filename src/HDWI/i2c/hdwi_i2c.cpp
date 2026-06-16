@@ -41,6 +41,9 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("get_read_buffer"), &HDWII2CResource::get_read_buffer);
         ADD_PROPERTY(PropertyInfo(Variant::PACKED_BYTE_ARRAY, "read_buffer"), "set_read_buffer", "get_read_buffer");
 
+        ClassDB::bind_method(D_METHOD("send_smbus_alert"), &HDWII2CResource::send_smbus_alert);
+        ClassDB::bind_method(D_METHOD("send_smbus_alert_addr", "alerting_addr"), &HDWII2CResource::send_smbus_alert_addr);
+
         ClassDB::bind_method(D_METHOD("dispatch_action", "request_data"), &HDWII2CResource::dispatch_action);
         ClassDB::bind_method(D_METHOD("handle_i2c_write", "payload"), &HDWII2CResource::handle_i2c_write);
         ClassDB::bind_method(D_METHOD("handle_i2c_read", "payload"), &HDWII2CResource::handle_i2c_read);
@@ -137,6 +140,18 @@ namespace godot {
         representation.resize(base_size + sizeof(uint8_t));
         representation.encode_u8(base_size, address);
         return representation;
+    }
+
+    void HDWII2CResource::send_smbus_alert() {
+        send_smbus_alert_addr(address);
+    }
+
+    void HDWII2CResource::send_smbus_alert_addr(int alerting_addr) {
+        PackedByteArray payload;
+        payload.resize(sizeof(sim_i2c_irq_payload_t));  // 2
+        payload.encode_u8(0, I2C_IRQ_SMBUS_ALERT);
+        payload.encode_u8(1, static_cast<uint8_t>(alerting_addr));
+        emit_irq(HDWIType::I2C, bus_index, payload);
     }
 
     void HDWII2CResource::dispatch_action(PackedByteArray request_data) {

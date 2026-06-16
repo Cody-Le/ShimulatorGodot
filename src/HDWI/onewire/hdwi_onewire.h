@@ -23,7 +23,13 @@ namespace godot {
     //        ONEWIRE_READ_TEMPERATURE -> "temperature" (millidegrees ASCII)
     //        ONEWIRE_READ_SLAVE       -> "w1_slave" (raw bytes + CRC/t= line)
     //        ONEWIRE_READ_RAW         -> "rw" generic raw bytes
+    //        ONEWIRE_READ_RESOLUTION  -> "resolution" (ASCII digit 9-12); read_buffer
+    //                                    is pre-filled from the resolution property, so
+    //                                    this signal is only needed to override it
     //   4. connect on_send (base) to ship the response to the socket
+    //   5. optionally connect on_onewire_resolution_changed to react when the FSW
+    //      writes "resolution" (e.g. retune a noise model) — the resolution property
+    //      itself is updated unconditionally, the signal is just notification
     //
     // Full reference: doc_classes/HDWIOneWireResource.xml
     class HDWIOneWireResource : public HDWIResource {
@@ -56,6 +62,15 @@ namespace godot {
             void            set_read_buffer(PackedByteArray p_buffer);
             PackedByteArray get_read_buffer() const;
 
+            // Bit resolution (9-12) the FSW set via the "resolution" sysfs file. This
+            // is the source of truth — ONEWIRE_READ_RESOLUTION formats it back to ASCII
+            // automatically, and GDScript can read/write it directly without wiring up
+            // a signal handler for the common case. Defaults to the DS18B20 power-on
+            // default (12-bit).
+            uint8_t resolution = 12;
+            void set_resolution(int p_resolution);
+            int  get_resolution() const;
+
             virtual void init() override {
                 if (onewire_resources == nullptr) {
                     onewire_resources = new TypedArray<HDWIOneWireResource>();
@@ -70,9 +85,25 @@ namespace godot {
 
             void on_send();
 
+            // Async 1-Wire interrupts (device_id = sensor_index). The w1 master kthread
+            // polls these flags, so they may fire at any time:
+            //   send_alarm(active)            — W1_IRQ_ALARM; active=true means the
+            //                                   sensor crossed TH/TL and shows up in an
+            //                                   alarm search, false clears it
+            //   send_presence_change(present) — W1_IRQ_PRESENCE_CHANGE; present=true the
+            //                                   sensor appears on the bus (W1_SEARCH),
+            //                                   false it departs (also clears alarm)
+            void send_alarm(bool active);
+            void send_presence_change(bool present);
+
             virtual void dispatch_action(PackedByteArray request_data) override;
 
             void handle_onewire_read(uint8_t action);
+            // ONEWIRE_WRITE_RESOLUTION: parses the ASCII payload, stores it in
+            // resolution (invalid/unparseable values are dropped, keeping the prior
+            // setting), emits on_onewire_resolution_changed, then ALWAYS acks with a
+            // data-less reply — the kernel thread blocks on this, unlike UART_WRITE.
+            void handle_onewire_write_resolution(PackedByteArray payload);
 
             static PackedByteArray get_group_type_representation();
             PackedByteArray get_device_representation() const override;

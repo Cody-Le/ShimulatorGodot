@@ -75,7 +75,29 @@ namespace godot {
             void            set_to_fsw(PackedByteArray p_buffer);
             PackedByteArray get_to_fsw() const;
             // Convenience: append bytes for the FSW to receive on its next read.
+            // When rx_irq_enabled is true this instead PUSHES the bytes as a
+            // UART_IRQ_RX_DATA interrupt (kernel drops them straight into the TTY flip
+            // buffer) and does NOT queue them for the poll path — pick one delivery
+            // model per port to avoid the FSW seeing every byte twice.
             void            queue_to_fsw(PackedByteArray p_bytes);
+
+            // Opt-in: route queue_to_fsw through a UART_IRQ_RX_DATA push instead of the
+            // polled to_fsw drain. Default false keeps the request/response read model.
+            bool rx_irq_enabled = false;
+            void set_rx_irq_enabled(bool p_enabled);
+            bool get_rx_irq_enabled() const;
+
+            // Explicit RX-side interrupts. send_rx_data pushes received bytes
+            // (no-op on an empty array — RX_DATA requires N >= 1); the rest are
+            // zero-data error/flow signals inserted into the TTY:
+            //   send_break / send_framing_error / send_parity_error / send_overrun
+            //   send_tx_empty — uart_write_wakeup(), tells the FSW's write() to refill
+            void send_rx_data(PackedByteArray p_bytes);
+            void send_break();
+            void send_framing_error();
+            void send_parity_error();
+            void send_overrun();
+            void send_tx_empty();
 
             virtual void init() override {
                 if (uart_resources == nullptr) {

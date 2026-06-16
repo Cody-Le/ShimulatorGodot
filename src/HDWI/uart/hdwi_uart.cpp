@@ -38,6 +38,17 @@ namespace godot {
         ADD_PROPERTY(PropertyInfo(Variant::PACKED_BYTE_ARRAY, "to_fsw"), "set_to_fsw", "get_to_fsw");
         ClassDB::bind_method(D_METHOD("queue_to_fsw", "bytes"), &HDWIUARTResource::queue_to_fsw);
 
+        ClassDB::bind_method(D_METHOD("set_rx_irq_enabled", "enabled"), &HDWIUARTResource::set_rx_irq_enabled);
+        ClassDB::bind_method(D_METHOD("get_rx_irq_enabled"), &HDWIUARTResource::get_rx_irq_enabled);
+        ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rx_irq_enabled"), "set_rx_irq_enabled", "get_rx_irq_enabled");
+
+        ClassDB::bind_method(D_METHOD("send_rx_data", "bytes"), &HDWIUARTResource::send_rx_data);
+        ClassDB::bind_method(D_METHOD("send_break"), &HDWIUARTResource::send_break);
+        ClassDB::bind_method(D_METHOD("send_framing_error"), &HDWIUARTResource::send_framing_error);
+        ClassDB::bind_method(D_METHOD("send_parity_error"), &HDWIUARTResource::send_parity_error);
+        ClassDB::bind_method(D_METHOD("send_overrun"), &HDWIUARTResource::send_overrun);
+        ClassDB::bind_method(D_METHOD("send_tx_empty"), &HDWIUARTResource::send_tx_empty);
+
         ClassDB::bind_method(D_METHOD("dispatch_action", "request_data"), &HDWIUARTResource::dispatch_action);
         ClassDB::bind_method(D_METHOD("handle_uart_write", "payload"), &HDWIUARTResource::handle_uart_write);
         ClassDB::bind_method(D_METHOD("handle_uart_read"), &HDWIUARTResource::handle_uart_read);
@@ -82,7 +93,59 @@ namespace godot {
     }
 
     void HDWIUARTResource::queue_to_fsw(PackedByteArray p_bytes) {
+        if (rx_irq_enabled) {
+            // Push delivery: hand the bytes straight to the FSW as an RX interrupt
+            // instead of parking them for the next UART_READ poll.
+            send_rx_data(p_bytes);
+            return;
+        }
         to_fsw.append_array(p_bytes);
+    }
+
+    void HDWIUARTResource::set_rx_irq_enabled(bool p_enabled) {
+        rx_irq_enabled = p_enabled;
+    }
+
+    bool HDWIUARTResource::get_rx_irq_enabled() const {
+        return rx_irq_enabled;
+    }
+
+    // Build a 1-byte UART IRQ header (used for every sub-type except RX_DATA, which
+    // appends its bytes after this header).
+    static PackedByteArray uart_irq_header(uint8_t irq) {
+        PackedByteArray payload;
+        payload.resize(sizeof(sim_uart_irq_payload_t));  // 1
+        payload.encode_u8(0, irq);
+        return payload;
+    }
+
+    void HDWIUARTResource::send_rx_data(PackedByteArray p_bytes) {
+        if (p_bytes.is_empty()) {
+            return;  // RX_DATA requires N >= 1; nothing to deliver
+        }
+        PackedByteArray payload = uart_irq_header(UART_IRQ_RX_DATA);
+        payload.append_array(p_bytes);
+        emit_irq(HDWIType::UART, port_index, payload);
+    }
+
+    void HDWIUARTResource::send_break() {
+        emit_irq(HDWIType::UART, port_index, uart_irq_header(UART_IRQ_BREAK));
+    }
+
+    void HDWIUARTResource::send_framing_error() {
+        emit_irq(HDWIType::UART, port_index, uart_irq_header(UART_IRQ_FRAMING_ERR));
+    }
+
+    void HDWIUARTResource::send_parity_error() {
+        emit_irq(HDWIType::UART, port_index, uart_irq_header(UART_IRQ_PARITY_ERR));
+    }
+
+    void HDWIUARTResource::send_overrun() {
+        emit_irq(HDWIType::UART, port_index, uart_irq_header(UART_IRQ_OVERRUN));
+    }
+
+    void HDWIUARTResource::send_tx_empty() {
+        emit_irq(HDWIType::UART, port_index, uart_irq_header(UART_IRQ_TX_EMPTY));
     }
 
     // Group body for UART (D050): [type][count] followed by count × 32-byte

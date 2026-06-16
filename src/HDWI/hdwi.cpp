@@ -7,6 +7,15 @@ uint64_t HDWIResource::sim_time_ns = 0;
 void HDWIResource::_bind_methods() {
     // Component - (HDWI) -> CommSeq
     ADD_SIGNAL(MethodInfo("on_send", PropertyInfo(Variant::OBJECT, "packet")));
+    // Reverse channel: engine-initiated event (IRQ / V4L2 frame). Every peripheral
+    // inherits this; the registry connects it to its send_event(...) so the
+    // EventClient stamps the simcall + sim_event headers and pushes it out :7778.
+    // payload is the per-type bytes (IRQ sub-type byte first, or a v4l2 frame).
+    ADD_SIGNAL(MethodInfo("on_event",
+        PropertyInfo(Variant::INT, "hdwi_type"),
+        PropertyInfo(Variant::INT, "device_id"),
+        PropertyInfo(Variant::INT, "event"),
+        PropertyInfo(Variant::PACKED_BYTE_ARRAY, "payload")));
     // Methods
     ClassDB::bind_method(D_METHOD("init"), &HDWIResource::init);
     ClassDB::bind_method(D_METHOD("clear"), &HDWIResource::clear);
@@ -28,6 +37,10 @@ void HDWIResource::set_device_name(const String &p_device_name) {
 
 String HDWIResource::get_device_name() const {
     return device_name;
+}
+
+void HDWIResource::emit_irq(HDWIType hw_type, uint8_t device_id, const PackedByteArray &payload) {
+    emit_signal("on_event", (int)hw_type, (int)device_id, (int)SIM_EVENT_IRQ, payload);
 }
 
 

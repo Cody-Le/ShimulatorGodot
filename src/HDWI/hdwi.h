@@ -35,7 +35,13 @@ namespace godot {
         
         protected:
             static void _bind_methods();
-        
+
+            // Push a reverse-channel IRQ for this peripheral. Subclasses build the
+            // per-type payload (payload[0] = IRQ sub-type, see sim_packet_type.h) and
+            // call this; it emits on_event so the registry/EventClient frame and ship
+            // it out :7778. Stamps SIM_EVENT_IRQ — frames nothing else here.
+            void emit_irq(HDWIType hw_type, uint8_t device_id, const PackedByteArray &payload);
+
         public:
             // Last sim time seeded from any inbound kernel packet. Updated by GDScript
             // via set_sim_time_ns() on every received packet so that all outbound

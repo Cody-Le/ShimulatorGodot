@@ -102,6 +102,17 @@ namespace godot {
             // No-op while !streaming. width*height must agree with the pixel layout.
             void send_frame(PackedByteArray p_pixels, int p_width, int p_height, uint32_t p_pixfmt);
 
+            // Async error IRQs (SIM_EVENT_IRQ), NOT gated on streaming. Inject these to
+            // exercise the FSW's error handling:
+            //   send_frame_drop() — kernel errors one queued buffer and bumps sequence
+            //   send_overflow()   — kernel logs an overflow (no buffer action)
+            //   send_error(errno) — kernel stops the stream and flushes queued buffers
+            //                       as errors (pass a negative errno, e.g. -5 for -EIO);
+            //                       also flips streaming off engine-side
+            void send_frame_drop();
+            void send_overflow();
+            void send_error(int error_code);
+
             // Forward-channel control (VIDIOC_STREAMON/STREAMOFF). V4L2 never answers
             // a read, so this only toggles streaming and notifies via on_stream_state.
             virtual void dispatch_action(PackedByteArray request_data) override;

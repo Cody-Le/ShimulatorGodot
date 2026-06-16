@@ -100,6 +100,14 @@ namespace godot {
 
             void on_send();
 
+            // Raise an SMBus #ALERT on this slave's bus (device_id = bus_index). The
+            // kernel hands it to a registered ARA client, which then reads address
+            // 0x0C — that read comes back as a normal I2C_READ the FSW must answer with
+            // the alerting address. send_smbus_alert() reports this slave's own
+            // address; pass an explicit one to alert on behalf of another device.
+            void send_smbus_alert();
+            void send_smbus_alert_addr(int alerting_addr);
+
             virtual void dispatch_action(PackedByteArray request_data) override;
 
             void handle_i2c_write(PackedByteArray payload);

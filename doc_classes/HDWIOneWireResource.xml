@@ -4,17 +4,20 @@
 		Virtual 1-Wire sensor exposed through the kernel's sysfs interface - e.g. a DS18B20 temperature sensor.
 	</brief_description>
 	<description>
-		Models one 1-Wire slave the FSW reads through sysfs. Reads are read-only and the resource is device-agnostic: when the FSW opens a sysfs attribute, this resource emits [signal on_onewire_read] with an action telling GDScript [i]which[/i] attribute was opened, GDScript fills [member read_buffer] with the bytes that file should contain, and the buffer is shipped back verbatim.
-		The three read actions correspond to the sysfs files:
+		Models one 1-Wire slave the FSW reads through sysfs. Most actions are read-only and the resource is device-agnostic: when the FSW opens a sysfs attribute, this resource emits [signal on_onewire_read] with an action telling GDScript [i]which[/i] attribute was opened, GDScript fills [member read_buffer] with the bytes that file should contain, and the buffer is shipped back verbatim.
+		The read actions correspond to the sysfs files:
 		[constant ONEWIRE_READ_TEMPERATURE] - the [code]temperature[/code] file (millidegrees as ASCII, e.g. [code]"21500\n"[/code] = 21.5 C).
 		[constant ONEWIRE_READ_SLAVE] - the [code]w1_slave[/code] file (raw scratchpad bytes plus a CRC line ending in [code]t=21500[/code]).
 		[constant ONEWIRE_READ_RAW] - the generic [code]rw[/code] raw byte channel.
+		[constant ONEWIRE_READ_RESOLUTION] - the [code]resolution[/code] file (ASCII digit 9-12). [member read_buffer] is pre-filled from [member resolution] before [signal on_onewire_read] fires, so this one works with no wiring at all unless you want to override it.
+		[constant ONEWIRE_WRITE_RESOLUTION] is the one write action: the FSW wrote the [code]resolution[/code] file. The resource parses the ASCII payload, clamps to 9-12 (out-of-range writes are dropped, keeping the previous value), stores it in [member resolution], and emits [signal on_onewire_resolution_changed]. Unlike every other 1-Wire action this one is request/reply - the kernel thread blocks waiting for the ack, so the resource always sends one (even when the write was rejected) with no GDScript involvement required.
 		[b]How to interface[/b]
 		[olist]
 		[*]Set [member sensor_index] - the kernel assigns indices by position in the sync body, so this must match that position (the registry emits sensors in [member sensor_index] order to keep them in sync). Set [member device_name] to the ROM id string.
 		[*]Call [method HDWIResource.init] to register the sensor.
-		[*]Connect [signal on_onewire_read]; in the handler, branch on the action and fill [member read_buffer] in the format that sysfs file expects.
+		[*]Connect [signal on_onewire_read]; in the handler, branch on the action and fill [member read_buffer] in the format that sysfs file expects. Not needed for [constant ONEWIRE_READ_RESOLUTION] unless overriding the default.
 		[*]Connect [signal HDWIResource.on_send] to forward the response to the kernel socket.
+		[*]Optionally connect [signal on_onewire_resolution_changed] to react when the FSW changes resolution (e.g. retune a conversion-time or noise model); [member resolution] is updated regardless of whether anything is connected.
 		[/olist]
 		[b]Example - a DS18B20 at 21.5 C[/b]
 		[codeblock]
@@ -43,7 +46,14 @@
 			<return type="void" />
 			<param index="0" name="action" type="int" />
 			<description>
-				Internal. Emits [signal on_onewire_read] (synchronous, so GDScript can fill [member read_buffer]), then frames the buffer and emits [signal HDWIResource.on_send]. Invoked by [method HDWIResource.dispatch_action] for any of the three read actions.
+				Internal. Emits [signal on_onewire_read] (synchronous, so GDScript can fill [member read_buffer]), then frames the buffer and emits [signal HDWIResource.on_send]. Invoked by [method HDWIResource.dispatch_action] for any read action; for [constant ONEWIRE_READ_RESOLUTION] the dispatcher pre-fills [member read_buffer] from [member resolution] first.
+			</description>
+		</method>
+		<method name="handle_onewire_write_resolution">
+			<return type="void" />
+			<param index="0" name="payload" type="PackedByteArray" />
+			<description>
+				Internal. Parses the ASCII bytes the FSW wrote to the [code]resolution[/code] sysfs file; values outside 9-12 are dropped, keeping the previous [member resolution]. On acceptance, stores it in [member resolution] and emits [signal on_onewire_resolution_changed]. Always sends a data-less ack afterward regardless of acceptance - the kernel thread blocks on this reply, unlike [code]UART_WRITE[/code]. Invoked by [method HDWIResource.dispatch_action] for [constant ONEWIRE_WRITE_RESOLUTION].
 			</description>
 		</method>
 		<method name="get_group_type_representation" qualifiers="static">
@@ -65,7 +75,10 @@
 			Natural identifier on the wire (inner 1-Wire header [code]sensor_index[/code]). Must match the position the kernel assigns during sync; registration is emitted in this order to guarantee that.
 		</member>
 		<member name="read_buffer" type="PackedByteArray" setter="set_read_buffer" getter="get_read_buffer" default="PackedByteArray()">
-			Raw response bytes for the current read. Fill this inside the [signal on_onewire_read] handler in the format that matches the requested action. Shipped verbatim - no transformation is applied.
+			Raw response bytes for the current read. Fill this inside the [signal on_onewire_read] handler in the format that matches the requested action. Shipped verbatim - no transformation is applied. Pre-filled from [member resolution] before [signal on_onewire_read] fires for [constant ONEWIRE_READ_RESOLUTION].
+		</member>
+		<member name="resolution" type="int" setter="set_resolution" getter="get_resolution" default="12">
+			Bit resolution (9-12) the FSW last set via the [code]resolution[/code] sysfs file. Source of truth for [constant ONEWIRE_READ_RESOLUTION] replies; [constant ONEWIRE_WRITE_RESOLUTION] writes update it directly. Defaults to the DS18B20 power-on default of 12 bits. Settable from GDScript at any time, e.g. to seed an initial value.
 		</member>
 	</members>
 	<signals>
@@ -73,7 +86,14 @@
 			<param index="0" name="sensor_index" type="int" />
 			<param index="1" name="action" type="int" />
 			<description>
-				Emitted when the FSW reads a sysfs attribute on this sensor. [param action] is one of [constant ONEWIRE_READ_TEMPERATURE], [constant ONEWIRE_READ_SLAVE], [constant ONEWIRE_READ_RAW]; fill [member read_buffer] accordingly before the handler returns.
+				Emitted when the FSW reads a sysfs attribute on this sensor. [param action] is one of [constant ONEWIRE_READ_TEMPERATURE], [constant ONEWIRE_READ_SLAVE], [constant ONEWIRE_READ_RAW], [constant ONEWIRE_READ_RESOLUTION]; fill [member read_buffer] accordingly before the handler returns. For [constant ONEWIRE_READ_RESOLUTION] this is already pre-filled with [member resolution] formatted as ASCII - only connect if you need to override it.
+			</description>
+		</signal>
+		<signal name="on_onewire_resolution_changed">
+			<param index="0" name="sensor_index" type="int" />
+			<param index="1" name="resolution" type="int" />
+			<description>
+				Emitted after the FSW writes a valid (9-12) value to the [code]resolution[/code] sysfs file and [member resolution] has been updated. Connect this only if something else needs to react to the change (e.g. a conversion-time or noise model keyed on bit resolution); [member resolution] itself is always kept current regardless of whether anything is connected.
 			</description>
 		</signal>
 	</signals>
@@ -86,6 +106,12 @@
 		</constant>
 		<constant name="ONEWIRE_READ_RAW" value="3">
 			The FSW opened the generic [code]rw[/code] raw channel; respond with raw bytes.
+		</constant>
+		<constant name="ONEWIRE_READ_RESOLUTION" value="4">
+			The FSW opened the [code]resolution[/code] sysfs file for reading; respond with the current bit resolution as ASCII (e.g. [code]"12\n"[/code]). [member read_buffer] is already pre-filled with this by the time [signal on_onewire_read] fires.
+		</constant>
+		<constant name="ONEWIRE_WRITE_RESOLUTION" value="129">
+			The FSW wrote a new bit resolution (9-12 ASCII) to the [code]resolution[/code] sysfs file. High bit (0x80) marks the write direction. Handled entirely internally: [member resolution] is updated (if valid) and an ack is always sent back - the kernel thread blocks on it. No GDScript wiring is required; connect [signal on_onewire_resolution_changed] only to react to the change.
 		</constant>
 	</constants>
 </class>

@@ -74,6 +74,20 @@ namespace godot {
             void set_gpio_values(PackedInt32Array p_gpio_values);
             PackedInt32Array get_gpio_values() const;
 
+            // When true (default), an engine-driven change to an INPUT line (via
+            // set_gpio_values) automatically raises a GPIO_IRQ_LINE_CHANGE so the
+            // FSW's registered line-event handler fires — modelling a real edge
+            // interrupt. Changes the FSW drives itself (GPIO_SET on its own outputs)
+            // never produce an IRQ. Set false to fall back to poll-only (GPIO_GET).
+            bool irq_enabled = true;
+            void set_irq_enabled(bool p_enabled);
+            bool get_irq_enabled() const;
+
+            // Explicit edge injection: raise GPIO_IRQ_LINE_CHANGE for `line` at
+            // `value` regardless of direction or irq_enabled. Use when you want to
+            // pulse an interrupt without staging it through gpio_values.
+            void send_line_change_irq(int line, int value);
+
             static PackedByteArray get_group_type_representation();
             PackedByteArray get_device_representation() const override;
 
