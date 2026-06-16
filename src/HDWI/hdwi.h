@@ -75,7 +75,9 @@ namespace godot {
 
             // Methods
             // Comm - (Device Registry -> Component's HDWI Resource) -> HDWI
-            virtual void dispatch_action(PackedByteArray request_data) = 0;
+            // pid: originating FSW process (tgid) from the request header; MUST be
+            // echoed in every reply that expects one (see generate() in PacketCPP).
+            virtual void dispatch_action(PackedByteArray request_data, uint32_t pid) = 0;
             
             HDWIResource() = default;
 

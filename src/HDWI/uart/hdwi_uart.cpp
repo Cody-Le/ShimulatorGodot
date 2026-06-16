@@ -49,9 +49,9 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("send_overrun"), &HDWIUARTResource::send_overrun);
         ClassDB::bind_method(D_METHOD("send_tx_empty"), &HDWIUARTResource::send_tx_empty);
 
-        ClassDB::bind_method(D_METHOD("dispatch_action", "request_data"), &HDWIUARTResource::dispatch_action);
+        ClassDB::bind_method(D_METHOD("dispatch_action", "request_data", "pid"), &HDWIUARTResource::dispatch_action);
         ClassDB::bind_method(D_METHOD("handle_uart_write", "payload"), &HDWIUARTResource::handle_uart_write);
-        ClassDB::bind_method(D_METHOD("handle_uart_read"), &HDWIUARTResource::handle_uart_read);
+        ClassDB::bind_method(D_METHOD("handle_uart_read", "pid"), &HDWIUARTResource::handle_uart_read);
 
         ClassDB::bind_method(D_METHOD("get_device_representation"), &HDWIUARTResource::get_device_representation);
         ClassDB::bind_static_method("HDWIUARTResource", D_METHOD("get_group_type_representation"), &HDWIUARTResource::get_group_type_representation);
@@ -185,7 +185,7 @@ namespace godot {
         return HDWIResource::get_device_representation();
     }
 
-    void HDWIUARTResource::dispatch_action(PackedByteArray request_data) {
+    void HDWIUARTResource::dispatch_action(PackedByteArray request_data, uint32_t pid) {
         // request_data = [0] action, [1..] payload. The dev_id (port_index) was already
         // stripped and used for routing by the registry, which prepends the action byte.
         if (request_data.size() < 1) {
@@ -196,10 +196,10 @@ namespace godot {
 
         switch (action) {
             case UART_WRITE:
-                handle_uart_write(payload);
+                handle_uart_write(payload);   // fire-and-forget, no reply
                 break;
             case UART_READ:
-                handle_uart_read();
+                handle_uart_read(pid);
                 break;
             default:
                 break;
@@ -213,7 +213,7 @@ namespace godot {
         emit_signal("on_uart_write", (int)port_index, payload);
     }
 
-    void HDWIUARTResource::handle_uart_read() {
+    void HDWIUARTResource::handle_uart_read(uint32_t pid) {
         // Last chance for GDScript to fill to_fsw synchronously before we drain it.
         emit_signal("on_uart_read", (int)port_index);
 
@@ -224,7 +224,7 @@ namespace godot {
         // ALWAYS reply, even with zero bytes. Response carries no dev_id — the kernel
         // knows which port it polled.
         PacketCPP *packet = memnew(PacketCPP);
-        packet->generate(CmdType::ACTION, HDWIType::UART, sim_time_ns, chunk);
+        packet->generate(CmdType::ACTION, HDWIType::UART, sim_time_ns, chunk, pid);
         emit_signal("on_send", packet->convert_to_bytes());
         memdelete(packet);
     }

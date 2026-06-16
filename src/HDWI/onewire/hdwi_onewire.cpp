@@ -40,9 +40,9 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("send_alarm", "active"), &HDWIOneWireResource::send_alarm);
         ClassDB::bind_method(D_METHOD("send_presence_change", "present"), &HDWIOneWireResource::send_presence_change);
 
-        ClassDB::bind_method(D_METHOD("dispatch_action", "request_data"), &HDWIOneWireResource::dispatch_action);
-        ClassDB::bind_method(D_METHOD("handle_onewire_read", "action"), &HDWIOneWireResource::handle_onewire_read);
-        ClassDB::bind_method(D_METHOD("handle_onewire_write_resolution", "payload"), &HDWIOneWireResource::handle_onewire_write_resolution);
+        ClassDB::bind_method(D_METHOD("dispatch_action", "request_data", "pid"), &HDWIOneWireResource::dispatch_action);
+        ClassDB::bind_method(D_METHOD("handle_onewire_read", "action", "pid"), &HDWIOneWireResource::handle_onewire_read);
+        ClassDB::bind_method(D_METHOD("handle_onewire_write_resolution", "payload", "pid"), &HDWIOneWireResource::handle_onewire_write_resolution);
 
         BIND_CONSTANT(ONEWIRE_READ_TEMPERATURE);
         BIND_CONSTANT(ONEWIRE_READ_SLAVE);
@@ -137,7 +137,7 @@ namespace godot {
         emit_irq(HDWIType::ONEWIRE, sensor_index, w1_irq_payload(W1_IRQ_PRESENCE_CHANGE, present ? 1 : 0));
     }
 
-    void HDWIOneWireResource::dispatch_action(PackedByteArray request_data) {
+    void HDWIOneWireResource::dispatch_action(PackedByteArray request_data, uint32_t pid) {
         // request_data = [0] action, [1..] payload (only ONEWIRE_WRITE_RESOLUTION
         // carries one). The dev_id (sensor index) was already stripped and used for
         // routing by the registry, which prepends the action byte (mirrors UART/SPI).
@@ -150,33 +150,25 @@ namespace godot {
             case ONEWIRE_READ_TEMPERATURE:
             case ONEWIRE_READ_SLAVE:
             case ONEWIRE_READ_RAW:
-                // All reads share one path; the action tells GDScript which sysfs
-                // attribute the FSW opened, so it can fill read_buffer in the format
-                // that file expects (millidegrees ASCII / w1_slave / raw bytes).
-                handle_onewire_read(action);
+                handle_onewire_read(action, pid);
                 break;
             case ONEWIRE_READ_RESOLUTION:
-                // resolution is engine-owned state, so pre-fill the default response
-                // before handing off — on_onewire_read only needs wiring if a scene
-                // wants to override it (e.g. inject a malformed resolution file).
                 read_buffer = (String::num_int64((int64_t)resolution) + "\n").to_utf8_buffer();
-                handle_onewire_read(action);
+                handle_onewire_read(action, pid);
                 break;
             case ONEWIRE_WRITE_RESOLUTION:
-                handle_onewire_write_resolution(request_data.slice(1, request_data.size()));
+                handle_onewire_write_resolution(request_data.slice(1, request_data.size()), pid);
                 break;
             default:
                 break;
         }
     }
 
-    void HDWIOneWireResource::handle_onewire_read(uint8_t action) {
-        // Let GDScript fill read_buffer synchronously before we ship it.
+    void HDWIOneWireResource::handle_onewire_read(uint8_t action, uint32_t pid) {
         emit_signal("on_onewire_read", (int)sensor_index, (int)action);
 
-        // Response carries no dev_id — the kernel knows which sensor it asked for.
         PacketCPP *packet = memnew(PacketCPP);
-        packet->generate(CmdType::ACTION, HDWIType::ONEWIRE, sim_time_ns, read_buffer);
+        packet->generate(CmdType::ACTION, HDWIType::ONEWIRE, sim_time_ns, read_buffer, pid);
         emit_signal("on_send", packet->convert_to_bytes());
         memdelete(packet);
     }
@@ -198,7 +190,7 @@ namespace godot {
         return any_digit ? static_cast<uint8_t>(value) : 0;
     }
 
-    void HDWIOneWireResource::handle_onewire_write_resolution(PackedByteArray payload) {
+    void HDWIOneWireResource::handle_onewire_write_resolution(PackedByteArray payload, uint32_t pid) {
         uint8_t parsed = parse_resolution_ascii(payload);
         // DS18B20 resolution range is 9-12 bits; reject anything else and keep
         // whatever was previously set rather than letting a malformed write desync
@@ -212,7 +204,7 @@ namespace godot {
         // this reply (unlike UART_WRITE, which is fire-and-forget). No dev_id, no
         // payload; it's purely an ack.
         PacketCPP *packet = memnew(PacketCPP);
-        packet->generate(CmdType::ACTION, HDWIType::ONEWIRE, sim_time_ns, PackedByteArray());
+        packet->generate(CmdType::ACTION, HDWIType::ONEWIRE, sim_time_ns, PackedByteArray(), pid);
         emit_signal("on_send", packet->convert_to_bytes());
         memdelete(packet);
     }

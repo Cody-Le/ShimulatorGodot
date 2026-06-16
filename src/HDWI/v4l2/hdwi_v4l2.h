@@ -115,7 +115,8 @@ namespace godot {
 
             // Forward-channel control (VIDIOC_STREAMON/STREAMOFF). V4L2 never answers
             // a read, so this only toggles streaming and notifies via on_stream_state.
-            virtual void dispatch_action(PackedByteArray request_data) override;
+            // pid is accepted for interface uniformity but unused (no reply is sent).
+            virtual void dispatch_action(PackedByteArray request_data, uint32_t pid) override;
 
             static PackedByteArray get_group_type_representation();
             PackedByteArray get_device_representation() const override;

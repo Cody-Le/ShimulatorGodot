@@ -46,7 +46,7 @@ namespace godot {
         ADD_PROPERTY(PropertyInfo(Variant::INT, "bus_index"), "set_bus_index", "get_bus_index");
 
         // Bind methods
-        ClassDB::bind_method(D_METHOD("dispatch_action", "request_data"), &HDWISPIResource::dispatch_action);
+        ClassDB::bind_method(D_METHOD("dispatch_action", "request_data", "pid"), &HDWISPIResource::dispatch_action);
         ClassDB::bind_static_method("HDWISPIResource", D_METHOD("get_group_type_representation"), &HDWISPIResource::get_group_type_representation);
         ClassDB::bind_static_method("HDWISPIResource", D_METHOD("lookup_spi_device_id", "bus_index", "chip_select"), &HDWISPIResource::lookup_spi_device_id);
         ClassDB::bind_method(D_METHOD("get_device_representation"), &HDWISPIResource::get_device_representation);
@@ -55,7 +55,7 @@ namespace godot {
         ADD_PROPERTY(PropertyInfo(Variant::PACKED_BYTE_ARRAY, "miso_buffer"), "set_miso_buffer", "get_miso_buffer");
 
         ClassDB::bind_method(D_METHOD("handle_spi_setup", "request_data"), &HDWISPIResource::handle_spi_setup);
-        ClassDB::bind_method(D_METHOD("handle_spi_transfer", "request_data"), &HDWISPIResource::handle_spi_transfer);
+        ClassDB::bind_method(D_METHOD("handle_spi_transfer", "request_data", "pid"), &HDWISPIResource::handle_spi_transfer);
 
         ADD_SIGNAL(MethodInfo("on_spi_setup",
             PropertyInfo(Variant::INT, "mode"),
@@ -151,10 +151,8 @@ namespace godot {
         return representation;
     }
 
-    void HDWISPIResource::dispatch_action(PackedByteArray request_data) {
-        // Parse the action type from the request data
+    void HDWISPIResource::dispatch_action(PackedByteArray request_data, uint32_t pid) {
         if (request_data.size() < 1) {
-            // Invalid request, not enough data to determine action type
             return;
         }
         uint8_t action_type = request_data.decode_u8(0);
@@ -162,13 +160,12 @@ namespace godot {
 
         switch (action_type) {
             case SPI_SETUP:
-                handle_spi_setup(action_data);
+                handle_spi_setup(action_data);   // fire-and-forget, no reply
                 break;
             case SPI_TRANSFER:
-                handle_spi_transfer(action_data);
+                handle_spi_transfer(action_data, pid);
                 break;
             default:
-                // Unknown action type
                 break;
         }
     }
@@ -198,7 +195,7 @@ namespace godot {
         return miso_buffer;
     }
 
-    void HDWISPIResource::handle_spi_transfer(PackedByteArray request_data) {
+    void HDWISPIResource::handle_spi_transfer(PackedByteArray request_data, uint32_t pid) {
         // request_data = N raw MOSI bytes. Must respond with N MISO bytes before the
         // kernel sends the next transfer or the stream desyncs.
         int64_t n = request_data.size();
@@ -212,7 +209,7 @@ namespace godot {
         }
 
         PacketCPP *packet = memnew(PacketCPP);
-        packet->generate(CmdType::ACTION, HDWIType::SPI, sim_time_ns, miso_buffer);
+        packet->generate(CmdType::ACTION, HDWIType::SPI, sim_time_ns, miso_buffer, pid);
         emit_signal("on_send", packet->convert_to_bytes());
         memdelete(packet);
     }

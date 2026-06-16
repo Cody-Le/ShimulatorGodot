@@ -10,7 +10,7 @@ void HDWIGPIOResource::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_gpio_values", "gpio_values"), &HDWIGPIOResource::set_gpio_values);
     ClassDB::bind_method(D_METHOD("get_gpio_values"), &HDWIGPIOResource::get_gpio_values);
     ClassDB::bind_method(D_METHOD("get_device_representation"), &HDWIGPIOResource::get_device_representation);
-    ClassDB::bind_method(D_METHOD("dispatch_action", "request_data"), &HDWIGPIOResource::dispatch_action);
+    ClassDB::bind_method(D_METHOD("dispatch_action", "request_data", "pid"), &HDWIGPIOResource::dispatch_action);
     ClassDB::bind_method(D_METHOD("init"), &HDWIGPIOResource::init);
     ClassDB::bind_method(D_METHOD("clear"), &HDWIGPIOResource::clear);
     ClassDB::bind_method(D_METHOD("set_chip_index", "chip_index"), &HDWIGPIOResource::set_chip_index);
@@ -65,7 +65,7 @@ int HDWIGPIOResource::lookup_gpio_device_id(int p_chip_index) {
     return it->second;
 }
 
-void HDWIGPIOResource::dispatch_action(PackedByteArray request_data) {
+void HDWIGPIOResource::dispatch_action(PackedByteArray request_data, uint32_t pid) {
     //UtilityFunctions::print("Received dispatch_action call with request data size: " + String::num_int64(request_data.size()));
     if (request_data.size() < (int64_t)sizeof(GpioRequest)) {
         UtilityFunctions::print("Error: Request data size is too small to form a valid GpioRequest.");
@@ -75,13 +75,13 @@ void HDWIGPIOResource::dispatch_action(PackedByteArray request_data) {
     GpioRequest request;
     memcpy(&request, request_data.ptr(), sizeof(GpioRequest));
     if (request.action == GPIO_SET) {
-        handle_gpio_set(request);
+        handle_gpio_set(request);   // fire-and-forget, no reply, pid not needed
     } else if (request.action == GPIO_DIR_OUT) {
-        handle_gpio_dir_out(request);
+        handle_gpio_dir_out(request, pid);
     } else if (request.action == GPIO_DIR_IN) {
-        handle_gpio_dir_in(request);
+        handle_gpio_dir_in(request, pid);
     } else {
-        handle_gpio_get(request);
+        handle_gpio_get(request, pid);
     }
 }
 
@@ -123,7 +123,7 @@ PackedByteArray HDWIGPIOResource::get_device_representation() const{
 }
 
 // GPIO Handler functions
-void HDWIGPIOResource::handle_gpio_get(GpioRequest request) {
+void HDWIGPIOResource::handle_gpio_get(GpioRequest request, uint32_t pid) {
     if (request.offset < gpio_values.size()) {
         GpioResponse response;
         response.status = 0;
@@ -131,16 +131,13 @@ void HDWIGPIOResource::handle_gpio_get(GpioRequest request) {
         PackedByteArray response_data;
         response_data.resize(sizeof(GpioResponse));
         memcpy(response_data.ptrw(), &response, sizeof(GpioResponse));
-        //UtilityFunctions::print("Prepared response data with value: " + String::num_int64(response.value));
         PacketCPP *packet = memnew(PacketCPP);
-        packet->generate(CmdType::ACTION, type, sim_time_ns, response_data);
-        //UtilityFunctions::print("Emitting on_send signal with response data size: " + String::num_int64(response_data.size()));
+        packet->generate(CmdType::ACTION, type, sim_time_ns, response_data, pid);
         emit_signal("on_send", packet->convert_to_bytes());
         memdelete(packet);
     } else {
         // Handle error: offset out of range
     }
-
 }
 
 void HDWIGPIOResource::handle_gpio_set(GpioRequest request) {
@@ -154,21 +151,19 @@ void HDWIGPIOResource::handle_gpio_set(GpioRequest request) {
     }
 }
 
-void HDWIGPIOResource::handle_gpio_dir_out(GpioRequest request) {
-    // Change gpio_dir at offset to output (1)
+void HDWIGPIOResource::handle_gpio_dir_out(GpioRequest request, uint32_t pid) {
     if(request.offset < gpio_dirs.size()) {
         gpio_dirs.set(request.offset, 1);
-        handle_gpio_get(request); // Set initial value for output line
+        handle_gpio_get(request, pid);
     } else {
         // Handle error: offset out of range
     }
 }
 
-void HDWIGPIOResource::handle_gpio_dir_in(GpioRequest request) {
-    // Change gpio_dir at offset to input (0)
+void HDWIGPIOResource::handle_gpio_dir_in(GpioRequest request, uint32_t pid) {
     if(request.offset < gpio_dirs.size()) {
         gpio_dirs.set(request.offset, 0);
-        handle_gpio_get(request); // Clear value for input line
+        handle_gpio_get(request, pid);
     } else {
         // Handle error: offset out of range
     }

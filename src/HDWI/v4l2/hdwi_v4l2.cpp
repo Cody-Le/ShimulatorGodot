@@ -44,7 +44,7 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("send_image", "image"), &HDWIV4L2Resource::send_image);
         ClassDB::bind_method(D_METHOD("send_frame", "pixels", "width", "height", "pixfmt"), &HDWIV4L2Resource::send_frame);
 
-        ClassDB::bind_method(D_METHOD("dispatch_action", "request_data"), &HDWIV4L2Resource::dispatch_action);
+        ClassDB::bind_method(D_METHOD("dispatch_action", "request_data", "pid"), &HDWIV4L2Resource::dispatch_action);
         ClassDB::bind_method(D_METHOD("get_device_representation"), &HDWIV4L2Resource::get_device_representation);
         ClassDB::bind_static_method("HDWIV4L2Resource", D_METHOD("get_group_type_representation"), &HDWIV4L2Resource::get_group_type_representation);
         ClassDB::bind_static_method("HDWIV4L2Resource", D_METHOD("lookup_v4l2_device_id", "video_index"), &HDWIV4L2Resource::lookup_v4l2_device_id);
@@ -169,10 +169,11 @@ namespace godot {
         }
     }
 
-    void HDWIV4L2Resource::dispatch_action(PackedByteArray request_data) {
+    void HDWIV4L2Resource::dispatch_action(PackedByteArray request_data, uint32_t pid) {
         // request_data = [0] action (dev_id stripped by the registry). V4L2 is a
         // source — it never replies — so the only forward-channel traffic is the
-        // FSW gating the stream.
+        // FSW gating the stream. pid is unused (no reply is sent on this path).
+        (void)pid;
         if (request_data.size() < 1) {
             return;
         }

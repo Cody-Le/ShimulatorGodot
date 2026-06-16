@@ -4,8 +4,12 @@
 		Encodes and decodes the simcall wire frame exchanged with the kernel driver over TCP.
 	</brief_description>
 	<description>
-		Wraps one [code]simcall_header_t[/code] (24 bytes, little-endian / native byte order, version 4) plus its variable-length data payload. Every message between the Godot host and the in-VM kernel driver is a [PacketCPP]: the header carries the command, the peripheral type, the simulation timestamp, and the payload length; the payload carries either a [code]CMD_SYNCH[/code] device-registration body or a [code]CMD_ACTION[/code] dev_id + action payload.
-		The HDWI resources build outbound packets internally and emit the raw bytes through [signal HDWIResource.on_send], so most GDScript only [i]decodes[/i] inbound frames with this class.
+		Wraps one [code]simcall_header_t[/code] (24 bytes, little-endian / native byte order, version 5) plus its variable-length data payload. Every message between the Godot host and the in-VM kernel driver is a [PacketCPP]: the header carries the command, the peripheral type, the originating process id ([code]pid[/code]), the simulation timestamp, and the payload length.
+		Version 5 adds the [code]pid[/code] field at header offset 4 (uint32, LE): the Linux [code]tgid[/code] of the FSW process that triggered the syscall. All reply packets must echo the request's [code]pid[/code] back — the kernel logs a desync warning otherwise.
+		[b]Inbound frame types[/b]
+		[code]CMD_SYNCH[/code] — time seed + device registration; no data segment.
+		[code]CMD_ACTION[/code] — peripheral I/O: dev_id + action payload.
+		[code]CMD_PROC_HELLO[/code] — process announce: no dev_id, 16-byte NUL-padded comm name in data.
 		[b]Decode an inbound header[/b]
 		[codeblock]
 		var pkt = PacketCPP.new()
@@ -14,12 +18,13 @@
 		    push_error("bad header (wrong version or size)")
 		    return
 		HDWIResource.set_sim_time_ns(pkt.get_time_ns())   # keep the sim clock seeded
-		var payload_len = pkt.get_data_len()              # now read this many more bytes
+		var pid = pkt.get_pid()                            # originating FSW process
+		var payload_len = pkt.get_data_len()               # now read this many more bytes
 		[/codeblock]
-		[b]Build an outbound packet[/b]
+		[b]Build an outbound reply[/b] — always echo the request [code]pid[/code]:
 		[codeblock]
 		var pkt = PacketCPP.new()
-		pkt.generate(PacketCPP.CMD_ACTION, PacketCPP.SPI, HDWIResource.get_sim_time_ns(), payload)
+		pkt.generate(PacketCPP.CMD_ACTION, PacketCPP.SPI, HDWIResource.get_sim_time_ns(), payload, request_pid)
 		socket.put_data(pkt.convert_to_bytes())
 		[/codeblock]
 		[b]Debugging[/b] - set [member robust] (or call [method to_string_robust]) to get a sectioned, byte-offset-labeled dump that decodes the header and interprets the data section by command type.
@@ -33,15 +38,16 @@
 			<param index="1" name="hdwi_type" type="int" enum="HDWIType" />
 			<param index="2" name="time_ns" type="int" />
 			<param index="3" name="bytes" type="PackedByteArray" />
+			<param index="4" name="pid" type="int" />
 			<description>
-				Fills the header (version 4, [param cmd_type], [param hdwi_type], [param time_ns]) and adopts [param bytes] as the payload, setting [code]data_len[/code] to its size. Pair with [method convert_to_bytes] to get the frame to send.
+				Fills the header (version 5, [param cmd_type], [param hdwi_type], [param time_ns], [param pid]) and adopts [param bytes] as the payload. For a reply, [param pid] MUST equal the request's [code]pid[/code] (use [method get_pid] on the inbound packet). Pass [code]0[/code] for unsolicited outbound frames. Pair with [method convert_to_bytes] to get the frame to send.
 			</description>
 		</method>
 		<method name="generate_from_bytes">
 			<return type="void" />
 			<param index="0" name="header_bytes" type="PackedByteArray" />
 			<description>
-				Parses exactly [method get_header_len] bytes into the header. Marks the packet valid only when the version matches 4 and the input length equals the header size; check [method get_validity] afterwards.
+				Parses exactly [method get_header_len] bytes into the header. Marks the packet valid only when the version matches 5 and the input length equals the header size; check [method get_validity] afterwards.
 			</description>
 		</method>
 		<method name="convert_to_bytes">
@@ -59,13 +65,19 @@
 		<method name="get_cmd_id">
 			<return type="int" />
 			<description>
-				The command id from the header ([code]CMD_SYNCH[/code] = 1, [code]CMD_ACTION[/code] = 2). See the [enum CmdType] constants.
+				The command id from the header. See the [enum CmdType] constants.
 			</description>
 		</method>
 		<method name="get_type">
 			<return type="int" />
 			<description>
 				The peripheral type from the header. See the [enum HDWIType] constants.
+			</description>
+		</method>
+		<method name="get_pid">
+			<return type="int" />
+			<description>
+				The originating FSW process id ([code]tgid[/code]) from the header. Present on all forward-channel frames (CMD_SYNCH, CMD_ACTION, CMD_PROC_HELLO). Zero on reverse-channel events (CMD_EVENT). Echo this value in every reply that expects one — the kernel validates the lockstep.
 			</description>
 		</method>
 		<method name="get_time_ns">
@@ -102,7 +114,7 @@
 		<method name="to_string_robust" qualifiers="const">
 			<return type="String" />
 			<description>
-				Returns the sectioned, byte-offset-labeled debug dump regardless of the [member robust] flag. Decodes the header and interprets the data section: [code]CMD_SYNCH[/code] as group registration, [code]CMD_ACTION[/code] as dev_id + payload.
+				Returns the sectioned, byte-offset-labeled debug dump regardless of the [member robust] flag. Decodes the header (including [code]pid[/code]) and interprets the data section by command type: [code]CMD_SYNCH[/code] as group registration, [code]CMD_ACTION[/code] as dev_id + payload, [code]CMD_PROC_HELLO[/code] as the process comm name.
 			</description>
 		</method>
 	</methods>
@@ -113,10 +125,16 @@
 	</members>
 	<constants>
 		<constant name="CMD_SYNCH" value="1" enum="CmdType">
-			Time-seeding / device-registration command. Its payload is the concatenated group bodies; no per-device handshake (D050).
+			Time-seeding / device-registration command. Payload is the concatenated group bodies; no per-device handshake (D050).
 		</constant>
 		<constant name="CMD_ACTION" value="2" enum="CmdType">
-			Peripheral I/O command. Its payload is a type-sized dev_id followed by the action payload.
+			Peripheral I/O command. Payload is a type-sized dev_id followed by the action payload. Reply must echo [code]pid[/code].
+		</constant>
+		<constant name="CMD_EVENT" value="3" enum="CmdType">
+			Reverse-channel engine → kernel async event (IRQ, V4L2 frame). Emitted by [EventClient]; [code]pid[/code] is 0.
+		</constant>
+		<constant name="CMD_PROC_HELLO" value="4" enum="CmdType">
+			Process announce: sent once per [code]pid[/code] before its first CMD_ACTION. No dev_id; payload is a 16-byte NUL-padded [code]current->comm[/code] name. No reply expected.
 		</constant>
 		<constant name="GPIO" value="0" enum="HDWIType">
 			GPIO peripheral type.
@@ -125,7 +143,7 @@
 			UART peripheral type.
 		</constant>
 		<constant name="I2C" value="2" enum="HDWIType">
-			I2C peripheral type (deferred - not in the current scope).
+			I2C peripheral type.
 		</constant>
 		<constant name="SPI" value="3" enum="HDWIType">
 			SPI peripheral type.

@@ -108,10 +108,10 @@ namespace godot {
             void send_smbus_alert();
             void send_smbus_alert_addr(int alerting_addr);
 
-            virtual void dispatch_action(PackedByteArray request_data) override;
+            virtual void dispatch_action(PackedByteArray request_data, uint32_t pid) override;
 
             void handle_i2c_write(PackedByteArray payload);
-            void handle_i2c_read(PackedByteArray payload);
+            void handle_i2c_read(PackedByteArray payload, uint32_t pid);
 
             static PackedByteArray get_group_type_representation();
             PackedByteArray get_device_representation() const override;

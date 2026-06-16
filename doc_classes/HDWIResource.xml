@@ -19,7 +19,7 @@
 		# 4. Deregister when tearing the device down.
 		dev.clear()
 		[/codeblock]
-		[b]Wire protocol[/b] - the outbound bytes emitted by [signal on_send] are a fully framed [code]simcall_header_t[/code] (24 bytes, little-endian, version 4) followed by the payload. The registry strips the inner per-type identifier before calling [method dispatch_action], so handlers only see the action byte plus action data.
+		[b]Wire protocol[/b] - the outbound bytes emitted by [signal on_send] are a fully framed [code]simcall_header_t[/code] (24 bytes, little-endian, version 5) followed by the payload. The header now carries [code]pid[/code] (offset 4, uint32): the originating FSW process tgid. The registry strips the inner per-type identifier before calling [method dispatch_action] and passes the pid through — every reply that expects one must echo it back via [method PacketCPP.generate].
 	</description>
 	<tutorials>
 	</tutorials>
@@ -39,8 +39,9 @@
 		<method name="dispatch_action">
 			<return type="void" />
 			<param index="0" name="request_data" type="PackedByteArray" />
+			<param index="1" name="pid" type="int" />
 			<description>
-				Entry point the device registry calls with the inner peripheral payload (the outer [code]simcall_header_t[/code] and per-type identifier already stripped). The first byte is the action id; the rest is action data. Each subclass decodes it and runs the matching handler. You normally do not call this yourself - connect to the subclass signals instead.
+				Entry point the device registry calls with the inner peripheral payload (the outer [code]simcall_header_t[/code] and per-type identifier already stripped) and the originating FSW process id [param pid]. The first byte of [param request_data] is the action id; the rest is action data. Each subclass decodes it, runs the matching handler, and echoes [param pid] in any reply via [method PacketCPP.generate]. You normally do not call this yourself — connect to the subclass signals instead.
 			</description>
 		</method>
 		<method name="get_device_representation" qualifiers="const">

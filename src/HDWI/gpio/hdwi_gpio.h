@@ -68,7 +68,7 @@ namespace godot {
             void on_send();
             void on_gpio_line_change(uint8_t line_offset, uint8_t new_value);
 
-            virtual void dispatch_action(PackedByteArray request_data) override;
+            virtual void dispatch_action(PackedByteArray request_data, uint32_t pid) override;
 
             PackedInt32Array gpio_values;
             void set_gpio_values(PackedInt32Array p_gpio_values);
@@ -97,10 +97,10 @@ namespace godot {
             // GDScript-callable variant.
             static int lookup_gpio_device_id(int p_chip_index);
 
-            void handle_gpio_get(GpioRequest request);
+            void handle_gpio_get(GpioRequest request, uint32_t pid);
             void handle_gpio_set(GpioRequest request);
-            void handle_gpio_dir_out(GpioRequest request);
-            void handle_gpio_dir_in(GpioRequest request);
+            void handle_gpio_dir_out(GpioRequest request, uint32_t pid);
+            void handle_gpio_dir_in(GpioRequest request, uint32_t pid);
     };
 
 }

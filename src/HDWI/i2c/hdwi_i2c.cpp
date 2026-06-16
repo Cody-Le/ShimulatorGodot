@@ -44,9 +44,9 @@ namespace godot {
         ClassDB::bind_method(D_METHOD("send_smbus_alert"), &HDWII2CResource::send_smbus_alert);
         ClassDB::bind_method(D_METHOD("send_smbus_alert_addr", "alerting_addr"), &HDWII2CResource::send_smbus_alert_addr);
 
-        ClassDB::bind_method(D_METHOD("dispatch_action", "request_data"), &HDWII2CResource::dispatch_action);
+        ClassDB::bind_method(D_METHOD("dispatch_action", "request_data", "pid"), &HDWII2CResource::dispatch_action);
         ClassDB::bind_method(D_METHOD("handle_i2c_write", "payload"), &HDWII2CResource::handle_i2c_write);
-        ClassDB::bind_method(D_METHOD("handle_i2c_read", "payload"), &HDWII2CResource::handle_i2c_read);
+        ClassDB::bind_method(D_METHOD("handle_i2c_read", "payload", "pid"), &HDWII2CResource::handle_i2c_read);
 
         ClassDB::bind_method(D_METHOD("get_device_representation"), &HDWII2CResource::get_device_representation);
         ClassDB::bind_static_method("HDWII2CResource", D_METHOD("get_group_type_representation"), &HDWII2CResource::get_group_type_representation);
@@ -154,7 +154,7 @@ namespace godot {
         emit_irq(HDWIType::I2C, bus_index, payload);
     }
 
-    void HDWII2CResource::dispatch_action(PackedByteArray request_data) {
+    void HDWII2CResource::dispatch_action(PackedByteArray request_data, uint32_t pid) {
         // request_data = [0] action, [1..] payload. The dev_id (bus_index, address)
         // was already stripped and used for routing by the registry, which prepends
         // the action byte taken from the dev_id.
@@ -166,10 +166,10 @@ namespace godot {
 
         switch (action) {
             case I2C_WRITE:
-                handle_i2c_write(payload);
+                handle_i2c_write(payload);   // fire-and-forget, no reply
                 break;
             case I2C_READ:
-                handle_i2c_read(payload);
+                handle_i2c_read(payload, pid);
                 break;
             default:
                 break;
@@ -184,7 +184,7 @@ namespace godot {
         emit_signal("on_i2c_write", (int)address, payload);
     }
 
-    void HDWII2CResource::handle_i2c_read(PackedByteArray payload) {
+    void HDWII2CResource::handle_i2c_read(PackedByteArray payload, uint32_t pid) {
         // payload = u16 LE requested byte count. The kernel hard-checks that the
         // reply's data_len equals this, so we must respond with EXACTLY len bytes.
         int64_t len = payload.size() >= 2 ? payload.decode_u16(0) : 0;
@@ -200,7 +200,7 @@ namespace godot {
         // Response carries no dev_id — the socket is strictly in-order, so the kernel
         // knows which read it answers.
         PacketCPP *packet = memnew(PacketCPP);
-        packet->generate(CmdType::ACTION, HDWIType::I2C, sim_time_ns, read_buffer);
+        packet->generate(CmdType::ACTION, HDWIType::I2C, sim_time_ns, read_buffer, pid);
         emit_signal("on_send", packet->convert_to_bytes());
         memdelete(packet);
     }

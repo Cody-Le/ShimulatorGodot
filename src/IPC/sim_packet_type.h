@@ -24,6 +24,7 @@ typedef uint8_t action_id_t;
 #define CMD_SYNCH  ((cmd_id_t)0x01)
 #define CMD_ACTION ((cmd_id_t)0x02)
 #define CMD_EVENT  ((cmd_id_t)0x03)  // reverse channel: engine -> kernel async events
+#define CMD_PROC_HELLO ((cmd_id_t)0x04)  // announce a process: header.pid + sim_proc_hello_t name
 
 #define ACTION_OPEN  ((action_id_t)0x01)
 #define ACTION_READ  ((action_id_t)0x02)
@@ -40,15 +41,29 @@ typedef uint8_t hdwi_type_t;
 #define HDWI_TYPE_V4L2    ((hdwi_type_t)0x05)
 
 // Wire format: simcall_header_t | dev_id | data
-// 24 bytes, NOT packed (natural alignment), version = 4
+// 24 bytes, NOT packed (natural alignment), version = 5
+//
+// pid (offset 4) is the originating FSW process — current->tgid inside the VM,
+// stamped on every forward (kernel -> engine) packet. It lets the engine tell
+// concurrent processes apart (a single vehicle may run several) and reply with
+// per-process context; the engine echoes it back so the kernel can validate the
+// reply landed on the right transaction. 0 on engine -> kernel events (CMD_EVENT).
 typedef struct {
     uint16_t    version;
     cmd_id_t    cmd_id;
     hdwi_type_t type;
-    uint8_t     reserved[4];
+    uint32_t    pid;           // offset 4: originating process (tgid), 0 = engine
     uint64_t    time_ns;       // offset 8
     uint32_t    data_len;      // covers data only, not dev_id
 } simcall_header_t;
+
+// CMD_PROC_HELLO payload: sent once per process (keyed by header.pid) the first
+// time it touches a device, so the engine can give the process a human name.
+// name is current->comm, NUL-padded. SIM_PROC_NAME_LEN matches TASK_COMM_LEN.
+#define SIM_PROC_NAME_LEN 16
+typedef struct SIM_PACKED {
+    char name[SIM_PROC_NAME_LEN];
+} sim_proc_hello_t;
 
 // ── GPIO ─────────────────────────────────────────────────────────────────────
 typedef uint8_t gpio_action_t;
@@ -123,16 +138,15 @@ typedef struct SIM_PACKED {
 // (CMD_EVENT / SIM_EVENT_FRAME), and the kernel only sends fire-and-forget
 // STREAMON/OFF gating on the forward channel (CMD_ACTION). No reply is expected
 // to either action — treat them like a UART write.
+
+// FourCC for the only pixel format the engine emits today: RGB24 ("RGB3").
+// Value is the Linux V4L2_PIX_FMT_RGB24 constant (byte order R,G,B per pixel).
+#define V4L2_PIX_FMT_RGB24_SIM ((uint32_t)0x33424752U)
+
 typedef uint8_t v4l2_action_t;
 
 #define V4L2_STREAM_ON  ((v4l2_action_t)0x01)
 #define V4L2_STREAM_OFF ((v4l2_action_t)0x02)
-
-// FourCC the engine stamps into v4l2_frame_hdr_t.pixfmt for every frame it emits
-// today (see below) — "RGB3" packed little-endian. Suffixed _SIM (rather than the
-// stock V4L2_PIX_FMT_RGB24) to avoid colliding with the real macro of the same
-// value if this header is ever compiled alongside linux/videodev2.h kernel-side.
-#define V4L2_PIX_FMT_RGB24_SIM ((uint32_t)0x33424752)
 
 // dev_id for forward STREAMON/OFF (CMD_ACTION, data_len = 0)
 typedef struct SIM_PACKED {

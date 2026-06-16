@@ -96,14 +96,14 @@ namespace godot {
             void send_alarm(bool active);
             void send_presence_change(bool present);
 
-            virtual void dispatch_action(PackedByteArray request_data) override;
+            virtual void dispatch_action(PackedByteArray request_data, uint32_t pid) override;
 
-            void handle_onewire_read(uint8_t action);
+            void handle_onewire_read(uint8_t action, uint32_t pid);
             // ONEWIRE_WRITE_RESOLUTION: parses the ASCII payload, stores it in
             // resolution (invalid/unparseable values are dropped, keeping the prior
             // setting), emits on_onewire_resolution_changed, then ALWAYS acks with a
             // data-less reply — the kernel thread blocks on this, unlike UART_WRITE.
-            void handle_onewire_write_resolution(PackedByteArray payload);
+            void handle_onewire_write_resolution(PackedByteArray payload, uint32_t pid);
 
             static PackedByteArray get_group_type_representation();
             PackedByteArray get_device_representation() const override;

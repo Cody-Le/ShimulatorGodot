@@ -113,10 +113,10 @@ namespace godot {
 
             void on_send();
 
-            virtual void dispatch_action(PackedByteArray request_data) override;
+            virtual void dispatch_action(PackedByteArray request_data, uint32_t pid) override;
 
             void handle_uart_write(PackedByteArray payload);
-            void handle_uart_read();
+            void handle_uart_read(uint32_t pid);
 
             static PackedByteArray get_group_type_representation();
             PackedByteArray get_device_representation() const override;

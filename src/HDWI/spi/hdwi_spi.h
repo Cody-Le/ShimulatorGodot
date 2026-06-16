@@ -99,11 +99,11 @@ namespace godot {
 
             // Handlers
             void handle_spi_setup(PackedByteArray request_data);
-            void handle_spi_transfer(PackedByteArray request_data);
+            void handle_spi_transfer(PackedByteArray request_data, uint32_t pid);
 
             // Methods
             // Comm - (Device Registry -> Component's HDWI Resource) -> HDWI
-            virtual void dispatch_action(PackedByteArray request_data) override;
+            virtual void dispatch_action(PackedByteArray request_data, uint32_t pid) override;
 
             static PackedByteArray get_group_type_representation();
             PackedByteArray get_device_representation() const override;

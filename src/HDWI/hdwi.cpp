@@ -22,7 +22,7 @@ void HDWIResource::_bind_methods() {
     ClassDB::bind_static_method("HDWIResource", D_METHOD("set_sim_time_ns", "t"), &HDWIResource::set_sim_time_ns);
     ClassDB::bind_static_method("HDWIResource", D_METHOD("get_sim_time_ns"), &HDWIResource::get_sim_time_ns);
 
-    ClassDB::bind_method(D_METHOD("dispatch_action"), &HDWIResource::dispatch_action);
+    ClassDB::bind_method(D_METHOD("dispatch_action", "request_data", "pid"), &HDWIResource::dispatch_action);
     // @Export variables bindings
     ClassDB::bind_method(D_METHOD("set_device_name", "device_name"), &HDWIResource::set_device_name);
     ClassDB::bind_method(D_METHOD("get_device_name"), &HDWIResource::get_device_name);

@@ -3,7 +3,7 @@
 
 using namespace godot;
 
-// The wire header is 24 bytes (natural alignment, version 4). If the pragma pack
+// The wire header is 24 bytes (natural alignment, version 5). If the pragma pack
 // in sim_packet_type.h ever wraps simcall_header_t again, MSVC packs it to 20
 // and silently corrupts every frame — fail the build here instead.
 static_assert(sizeof(simcall_header_t) == 24, "simcall_header_t must be 24 bytes on the wire");
@@ -19,11 +19,12 @@ PacketCPP::~PacketCPP() {
 
 //Bind all methods and write appropriate signatures for Godot to recognize type + field type correction
 void PacketCPP::_bind_methods() {
-    ClassDB::bind_method(D_METHOD("generate", "cmd_type", "hdwi_type", "time_ns", "bytes"), &PacketCPP::generate);
+    ClassDB::bind_method(D_METHOD("generate", "cmd_type", "hdwi_type", "time_ns", "bytes", "pid"), &PacketCPP::generate);
     ClassDB::bind_method(D_METHOD("generate_from_bytes", "header_bytes"), &PacketCPP::generate_from_bytes);
     ClassDB::bind_method(D_METHOD("get_validity"), &PacketCPP::get_validity);
     ClassDB::bind_method(D_METHOD("get_cmd_id"), &PacketCPP::get_cmd_id);
     ClassDB::bind_method(D_METHOD("get_type"), &PacketCPP::get_type);
+    ClassDB::bind_method(D_METHOD("get_pid"), &PacketCPP::get_pid);
     ClassDB::bind_method(D_METHOD("get_time_ns"), &PacketCPP::get_time_ns);
     ClassDB::bind_method(D_METHOD("get_data_len"), &PacketCPP::get_data_len);
     ClassDB::bind_method(D_METHOD("_to_string"), &PacketCPP::_to_string);
@@ -37,8 +38,10 @@ void PacketCPP::_bind_methods() {
     ClassDB::bind_method(D_METHOD("convert_to_bytes"), &PacketCPP::convert_to_bytes);
 
     // In _bind_methods()
-    ClassDB::bind_integer_constant(get_class_static(), "CmdType", "CMD_SYNCH",  (int64_t)CmdType::SYNCH);
-    ClassDB::bind_integer_constant(get_class_static(), "CmdType", "CMD_ACTION", (int64_t)CmdType::ACTION);
+    ClassDB::bind_integer_constant(get_class_static(), "CmdType", "CMD_SYNCH",      (int64_t)CmdType::SYNCH);
+    ClassDB::bind_integer_constant(get_class_static(), "CmdType", "CMD_ACTION",     (int64_t)CmdType::ACTION);
+    ClassDB::bind_integer_constant(get_class_static(), "CmdType", "CMD_EVENT",      (int64_t)CmdType::EVENT);
+    ClassDB::bind_integer_constant(get_class_static(), "CmdType", "CMD_PROC_HELLO", (int64_t)CmdType::PROC_HELLO);
 
     ClassDB::bind_integer_constant(get_class_static(), "HDWIType", "GPIO",    (int64_t)HDWIType::GPIO);
     ClassDB::bind_integer_constant(get_class_static(), "HDWIType", "UART",    (int64_t)HDWIType::UART);
@@ -51,18 +54,20 @@ void PacketCPP::_bind_methods() {
 
 
 void PacketCPP::generate(
-                CmdType cmd_type, 
+                CmdType cmd_type,
                 HDWIType hdwi_type,
                 uint64_t time_ns,
-                PackedByteArray bytes) {
+                PackedByteArray bytes,
+                uint32_t pid) {
     this->header = {0};
     this->header.version = VERSION;
     this->header.cmd_id = static_cast<uint8_t>(cmd_type);
     this->header.type    = static_cast<uint8_t>(hdwi_type);
+    this->header.pid     = pid;
     this->header.time_ns = time_ns;
     this->data = bytes;
     this->header.data_len = bytes.size();
-}  
+}
 
 void PacketCPP::generate_from_bytes(PackedByteArray header_bytes) {
     this->header = {0};
@@ -93,6 +98,9 @@ int64_t PacketCPP::get_cmd_id() {
 }
 int64_t PacketCPP::get_type() {
     return (int64_t)header.type;
+}
+int64_t PacketCPP::get_pid() {
+    return (int64_t)header.pid;
 }
 uint64_t PacketCPP::get_time_ns() {
     return header.time_ns;
@@ -171,12 +179,14 @@ String PacketCPP::build_robust() const {
 
     String cmd_name = (header.cmd_id == CMD_SYNCH) ? "CMD_SYNCH"
                     : (header.cmd_id == CMD_ACTION) ? "CMD_ACTION"
+                    : (header.cmd_id == CMD_EVENT) ? "CMD_EVENT"
+                    : (header.cmd_id == CMD_PROC_HELLO) ? "CMD_PROC_HELLO"
                     : "UNKNOWN";
     r += "  " + span(2, 1) + " cmd_id    : " + cmd_name + " (0x" + hex2(header.cmd_id) + ")\n";
     String tname = hdwi_type_name(header.type);
     if (!tname.begins_with("0x")) tname += " (0x" + hex2(header.type) + ")";
     r += "  " + span(3, 1) + " type      : " + tname + "\n";
-    r += "  " + span(4, 4) + " reserved  : " + hex_range(header.reserved, 4) + "\n";
+    r += "  " + span(4, 4) + " pid       : " + String::num_uint64(header.pid) + "\n";
     r += "  " + span(8, 8) + " time_ns   : " + String::num_uint64(header.time_ns) + "\n";
     r += "  " + span(16, 4) + " data_len  : " + String::num_int64(header.data_len) + "\n";
 
@@ -231,6 +241,12 @@ String PacketCPP::build_robust() const {
         } else {
             r += "  [data] " + hex_range(p, n) + "\n";
         }
+    } else if (header.cmd_id == CMD_PROC_HELLO) {
+        // sim_proc_hello_t: NUL-padded comm name, no dev_id.
+        r += "DATA (" + String::num_int64(n) + " bytes) — PROC_HELLO\n";
+        int len = 0;
+        while (len < n && p[len] != 0) ++len;
+        r += "  " + span(0, n) + " name      : \"" + String::utf8((const char *)p, len) + "\"\n";
     } else {
         r += "DATA (" + String::num_int64(n) + " bytes) — RAW\n";
         r += "  " + hex_range(p, n) + "\n";
@@ -263,10 +279,15 @@ String PacketCPP::_to_string() const {
         result += "cmd_id: CMD_SYNCH, ";
     } else if(header.cmd_id == CMD_ACTION) {
         result += "cmd_id: CMD_ACTION, ";
+    } else if(header.cmd_id == CMD_EVENT) {
+        result += "cmd_id: CMD_EVENT, ";
+    } else if(header.cmd_id == CMD_PROC_HELLO) {
+        result += "cmd_id: CMD_PROC_HELLO, ";
     } else {
         result += "cmd_id: UNKNOWN, ";
     }
     result += "type: " + String::num_int64((uint8_t)header.type) + ", ";
+    result += "pid: " + String::num_int64(header.pid) + ", ";
     result += "time_ns: " + String::num_int64(header.time_ns) + ", ";
     result += "data_len: " + String::num_int64(header.data_len) + ", ";
     result += "data: " + data.hex_encode();
